@@ -1,0 +1,2432 @@
+src/components/HeadInSnow.tsx:
+```tsx
+// src/components/HeadInSnow.tsx
+import React from 'react';
+import { View } from 'react-native';
+import Svg, { G, Path, Circle } from 'react-native-svg';
+
+type Props = {
+  left: number;     // posição X absoluta em px (tela)
+  bottom: number;   // posição Y absoluta em px (tela)
+  scale?: number;   // ajuste de tamanho (default 0.38)
+  rotateDeg?: number; // leve rotação pra dramatizar (default -8)
+};
+
+export default function HeadInSnow({
+  left,
+  bottom,
+  scale = 0.38,
+  rotateDeg = -8,
+}: Props) {
+  return (
+    <View style={{ position: 'absolute', left, bottom, pointerEvents: 'none' }}>
+      <Svg width={320} height={240} viewBox="-60 0 420 240" style={{ overflow: 'visible' }}>
+        <G transform={`translate(0,0) scale(${scale}) rotate(${rotateDeg}, 160, 120)`}>
+          {/* Cabeça na neve (seu desenho) */}
+          <Path d="M -18 122 C -26 140 158 70 158 96 C 282 38 312 72 322 130 C 312 162 272 192 187 197 C 112 220 32 195 12 160 Z" fill="#0a2b4c" />
+          <Circle cx="232" cy="113" r="98" fill="#0a2b4c" />
+          <Path d="M 70 110 C 54 98 52 78 72 64 C 102 82 122 102 116 122 C 100 124 84 120 70 110 Z" fill="#2a2b2d" opacity={0.45} />
+          <Path d="M 69 113 C 53 101 57 67 71 67 C 107 71 127 91 121 111 C 99 127 83 123 69 113 Z" fill="#0b2b4d" stroke="#FFFFFF" strokeWidth={0} opacity={1} strokeLinecap="round" strokeLinejoin="round" />
+          <Path d="M -26 156 C -6 146 24 148 44 162 C 27 174 -3 178 -21 170 Z" fill="#f59e0b" />
+          <Path d="M60,60 L66,58 L62,64 Z" fill="#ffffff" opacity={0.3} />
+          <Path d="M100,90 L106,88 L102,94 Z" fill="#ffffff" opacity={0.3} />
+          <Path d="M140,50 L146,48 L142,54 Z" fill="#ffffff" opacity={0.3} />
+          <Path d="M180,110 L186,108 L182,114 Z" fill="#ffffff" opacity={0.3} />
+          <Path d="M 28 220 C 32 184 76 190 78 190 C 83 230 53 234 35 226 Z" fill="#f59e0b" />
+          <Circle cx="230" cy="116" r="102" fill="#ffffff" />
+        </G>
+      </Svg>
+    </View>
+  );
+}
+
+```
+
+src/screens/GameScreen.tsx:
+```tsx
+// src/screens/GameScreen.tsx
+import React, { useEffect, useRef } from 'react';
+import { View, useWindowDimensions, Platform, StyleSheet } from 'react-native';
+import useGameStore from '../store/useGameStore';
+import { metersToPx, worldXToScreenPx } from '../game/physics';
+
+import BGMountains from '../components/BGMountains';
+import IceGround from '../components/IceGround';
+import Penguin from '../components/Penguin';
+import HUD from '../components/HUD';
+import Cannon from '../components/Cannon';
+import ArrowIndicator from '../components/ArrowIndicator';
+import FlightDistance from '../components/FlightDistance';
+import HeadInSnow from '../components/HeadInSnow';
+
+// ===== Retrato / câmera =====
+const ppm = 32;
+// IMPORTANTE: manter 60 — é o mesmo valor usado no setCrashed() para alinhar o impacto
+const marginLeftPx = 60;
+const groundBottomPx = 26;
+
+// Mola (offset visual)
+const CANNON_LIFT_PX = 69;
+const cannonBottomPx = groundBottomPx + CANNON_LIFT_PX;
+
+export default function GameScreen() {
+  const { width: Wpx } = useWindowDimensions();
+  const screenMeters = Wpx / ppm;
+  const marginMeters = marginLeftPx / ppm;
+
+  const rafRef = useRef<number | null>(null);
+
+  // ===== Store (seletores) =====
+  const step            = useGameStore((s) => s.step);
+  const px              = useGameStore((s) => s.px);
+  const py              = useGameStore((s) => s.py);
+  const vx              = useGameStore((s) => s.vx);
+  const vy              = useGameStore((s) => s.vy);
+  const phase           = useGameStore((s) => s.phase);
+  const cameraX         = useGameStore((s) => s.cameraX);
+  const cameraZoom      = useGameStore((s) => s.cameraZoom);
+  const impact          = useGameStore((s) => s.impact);
+  const clearImpact     = useGameStore((s) => s.clearImpact);
+
+  const setCameraTarget = useGameStore((s) => s.setCameraTarget);
+  const snapCamera      = useGameStore((s) => s.snapCamera);
+  const tickCamera      = useGameStore((s) => s.tickCamera);
+  const followPenguin   = useGameStore((s) => s.followPenguin);
+  const setZoomTarget   = useGameStore((s) => s.setZoomTarget);
+
+  // ===== Loop do jogo (física/step) =====
+  useEffect(() => {
+    let last = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const loop = (nowLike: number) => {
+      const now = (typeof performance !== 'undefined' ? nowLike : Date.now());
+      const dt = Math.min(0.033, Math.max(0, (now - last) / 1000));
+      last = now;
+      step(dt, ppm);
+      rafRef.current = requestAnimationFrame(loop as any);
+    };
+    rafRef.current = requestAnimationFrame(loop as any);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [step]);
+
+  // ===== Snap inicial e zoom ao entrar em voo / pós-voo =====
+  useEffect(() => {
+    if (phase === 'flight') {
+      const target = Math.max(0, px - screenMeters * 0.32 + marginMeters);
+      setCameraTarget(target);
+      snapCamera(target);
+      setZoomTarget(1.06);
+    } else if (phase === 'landed' || phase === 'crashed') {
+      setZoomTarget(1.0);
+    }
+  }, [phase, px, screenMeters, marginMeters, setCameraTarget, snapCamera, setZoomTarget]);
+
+  // ===== Loop da câmera (follow + zoom dinâmico) =====
+  useEffect(() => {
+    let raf = 0;
+    let last = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+    const loop = (t: number) => {
+      const now = (typeof performance !== 'undefined' ? t : Date.now());
+      const dt = Math.max(0, (now - last) / 1000);
+      last = now;
+
+      if (phase === 'flight') {
+        followPenguin(px, screenMeters, marginMeters);
+
+        const speed = Math.sqrt(vx * vx + vy * vy);
+        const vMax = 28;
+        const k = Math.min(1, speed / vMax);
+        const zoomTarget = 1.03 + k * 0.07;
+        setZoomTarget(zoomTarget);
+      } else if (phase === 'landed' || phase === 'crashed') {
+        setZoomTarget(1.0);
+      }
+
+      tickCamera(dt);
+      raf = requestAnimationFrame(loop);
+    };
+
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [phase, px, vx, vy, screenMeters, marginMeters, followPenguin, setZoomTarget, tickCamera]);
+
+  // ===== Auto clear do impacto (estouro de neve) =====
+  useEffect(() => {
+    if (phase === 'crashed' && impact) {
+      const timeout = setTimeout(() => clearImpact(), 1000);
+      return () => clearTimeout(timeout);
+    }
+  }, [phase, impact, clearImpact]);
+
+  // ===== Mundo → Tela (helper local) =====
+  const worldToScreen = (wx: number, wy: number) => {
+    const xPx = worldXToScreenPx(wx, cameraX, ppm, marginLeftPx);
+    const yPx = metersToPx(wy, ppm);
+    return { xPx, yPx };
+  };
+  // Se for usar no futuro: const peng = worldToScreen(px, py);
+
+  return (
+    <View style={styles.screen}>
+      {/* Fundo / Parallax */}
+      <BGMountains cameraX={cameraX} />
+
+      {/* Chão: recebe impacto para soltar neve */}
+      <IceGround cameraX={cameraX} impact={impact || undefined} />
+
+      {/* Mundo (com zoom) */}
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0,
+          justifyContent: 'flex-end',
+          pointerEvents: 'none',
+        }}
+      >
+        <View style={{ transform: [{ scale: cameraZoom }] }}>
+          <Cannon
+            xMeters={0}
+            yBottomPx={cannonBottomPx}
+            ppm={ppm}
+            marginLeftPx={marginLeftPx}
+            scale={1.0}
+          />
+
+          <Penguin
+            ppm={ppm}
+            marginLeftPx={marginLeftPx}
+            groundBottomPx={groundBottomPx}
+          />
+        </View>
+
+        <ArrowIndicator
+          ppm={ppm}
+          marginLeftPx={marginLeftPx}
+          groundBottomPx={groundBottomPx}
+        />
+      </View>
+
+      {/* Crash: Cabeça na neve por cima de tudo */}
+      {phase === 'crashed' && impact && (
+        <HeadInSnow left={impact.xPx - 60} bottom={groundBottomPx - 8} />
+      )}
+
+      {/* HUD/UI */}
+      <FlightDistance />
+      <HUD />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    position: 'relative',
+    ...(Platform.OS === 'web' ? { overflow: 'hidden' } : {}),
+    backgroundColor: 'transparent',
+  },
+});
+
+```
+
+src/store/useGameStore.ts:
+```ts
+// src/store/useGameStore.ts
+import { create } from 'zustand';
+import {
+  decideImpactOutcome,
+  worldXToScreenPx,
+  saveScoreCompat,
+} from '../game/physics';
+
+export type GameState = {
+  time: number;
+  running: boolean;
+  gravity: number;
+  drag: number;
+  angleDeg: number;
+  power01: number;
+  px: number;
+  py: number;
+  vx: number;
+  vy: number;
+  groundY: number;
+  cameraX: number;
+  cameraTargetX: number;
+  cameraZoom: number;
+  cameraZoomTarget: number;
+  distance: number;
+  hasLanded: boolean;
+  phase: 'power' | 'angle' | 'flight' | 'landed' | 'crashed';
+  impact: { key: number | string; xPx: number; power: number } | null;
+
+  setAngle: (a: number) => void;
+  setPower01: (p: number) => void;
+  reset: () => void;
+  launch: () => void;
+  pressMain: () => void;
+  step: (dt: number, pixelsPerMeter: number) => void;
+  setCameraTarget: (x: number) => void;
+  setZoomTarget: (z: number) => void;
+  snapCamera: (x?: number) => void;
+  tickCamera: (dt: number) => void;
+  followPenguin: (penguinX: number, screenMeters: number, marginMeters: number) => void;
+  setCrashed: (payload: { x: number; distance: number; power?: number }) => void;
+  clearImpact: () => void;
+};
+
+const DEG2RAD = (d: number) => (d * Math.PI) / 180;
+
+const useGameStore = create<GameState>((set, get) => ({
+  time: 0,
+  running: false,
+  gravity: 9.8,
+  drag: 0.02,
+  angleDeg: 45,
+  power01: 0.6,
+  px: 0,
+  py: 0,
+  vx: 0,
+  vy: 0,
+  groundY: 0,
+  cameraX: 0,
+  cameraTargetX: 0,
+  cameraZoom: 1,
+  cameraZoomTarget: 1,
+  distance: 0,
+  hasLanded: false,
+  phase: 'power',
+  impact: null,
+
+  setAngle: (a) => set({ angleDeg: Math.max(10, Math.min(80, a)) }),
+  setPower01: (p) => set({ power01: Math.max(0, Math.min(1, p)) }),
+
+  reset: () => set({
+    time: 0,
+    running: false,
+    px: 0,
+    py: 0,
+    vx: 0,
+    vy: 0,
+    cameraX: 0,
+    cameraTargetX: 0,
+    cameraZoom: 1,
+    cameraZoomTarget: 1,
+    distance: 0,
+    hasLanded: false,
+    phase: 'power',
+    power01: 0,
+    angleDeg: 45,
+    impact: null,
+  }),
+
+  launch: () => {
+    const { angleDeg, power01 } = get();
+    const v0 = 25 * (0.35 + 0.65 * power01);
+    const rad = (angleDeg * Math.PI) / 180;
+    const vx = v0 * Math.cos(rad);
+    const vy = v0 * Math.sin(rad);
+    set({
+      running: true,
+      time: 0,
+      vx,
+      vy,
+      px: 0,
+      py: 0,
+      cameraX: 0,
+      cameraTargetX: 0,
+      cameraZoom: 1,
+      cameraZoomTarget: 1,
+      hasLanded: false,
+      distance: 0,
+      phase: 'flight',
+      impact: null,
+    });
+  },
+
+  pressMain: () => set((s) => {
+    if (s.phase === 'power') {
+      return { phase: 'angle' };
+    }
+
+    if (s.phase === 'angle') {
+      const power = Math.max(0, Math.min(1, s.power01 ?? 0));
+      const angle = DEG2RAD(s.angleDeg ?? 0);
+
+      const v0 = 8 + power * 22;
+      const vx = v0 * Math.cos(angle);
+      const vy = v0 * Math.sin(angle);
+
+      return {
+        phase: 'flight',
+        running: true,
+        vx, vy,
+      };
+    }
+
+    return {};
+  }),
+
+  // === LOOP DE FÍSICA COM DETECÇÃO DE CRASH ===
+  step: (dt, _ppm) => {
+    const { running, gravity, drag, px, py, vx, vy, hasLanded } = get();
+    if (!running || hasLanded) return;
+
+    let nx = px + vx * dt;
+    let ny = py + vy * dt;
+    let nvx = vx * (1 - drag * dt);
+    let nvy = vy - gravity * dt;
+
+    // Impacto com o chão
+    if (ny <= 0) {
+      ny = 0;
+
+      // Decisão slide vs crash no exato frame de contato
+      const { outcome, angleDeg } = decideImpactOutcome(nvx, nvy);
+      const distance = Math.max(0, nx); // como começamos em px=0, a distância é o X atual
+
+      if (outcome === 'crash') {
+        // Posiciona a arte "cabeça na neve" na tela (retrato)
+        // Usa o ppm recebido no step e mesma margem do layout
+        const marginLeftPx = 60; // mesmo offset usado no GameScreen/Penguin
+        const xScreen = worldXToScreenPx(nx, get().cameraX, _ppm, marginLeftPx);
+
+        // força/estouro do impacto (escala leve pela velocidade)
+        const impactPower = Math.min(2, 0.6 + Math.hypot(nvx, nvy) / 14);
+
+        // Trava física e marca crash (HUD mostra distância já)
+        get().setCrashed({ x: xScreen, distance, power: impactPower });
+
+        // Salva placar no crash
+        saveScoreCompat(distance, get().power01 ?? 0, angleDeg, 'crash');
+
+        // Atualiza posições/velocidades finais deste frame
+        set({ px: nx, py: ny, vx: 0, vy: 0 });
+        return;
+      }
+
+      // === SLIDE === (atrito leve no gelo)
+      const slip = Math.max(0, Math.abs(nvx) - 2 * dt);
+      const dir = nvx >= 0 ? 1 : -1;
+      nvx = slip * dir;
+      nvy = 0;
+
+      // Parou de deslizar?
+      if (Math.abs(nvx) < 0.2) {
+        set({ running: false, hasLanded: true, distance: nx, phase: 'landed' });
+        // (se quiser salvar score apenas quando parar de deslizar, pode salvar aqui também)
+      }
+
+      set({
+        px: nx,
+        py: ny,
+        vx: nvx,
+        vy: nvy,
+        time: get().time + dt,
+      });
+      return;
+    }
+
+    // Voo normal
+    set({
+      px: nx,
+      py: ny,
+      vx: nvx,
+      vy: nvy,
+      time: get().time + dt,
+    });
+  },
+
+  setCameraTarget: (x) =>
+    set(() => ({ cameraTargetX: x })),
+
+  setZoomTarget: (z) =>
+    set(() => ({ cameraZoomTarget: Math.max(0.9, Math.min(1.2, z)) })),
+
+  snapCamera: (x) =>
+    set((s) => ({
+      cameraX: x ?? s.cameraTargetX,
+      cameraZoom: s.cameraZoomTarget,
+    })),
+
+  tickCamera: (dt) =>
+    set((s) => {
+      const followSpeed = 4;
+      const zoomSpeed = 2;
+      const k1 = 1 - Math.exp(-followSpeed * dt);
+      const k2 = 1 - Math.exp(-zoomSpeed * dt);
+      const cameraX = s.cameraX + (s.cameraTargetX - s.cameraX) * k1;
+      const cameraZoom = s.cameraZoom + (s.cameraZoomTarget - s.cameraZoom) * k2;
+      return { cameraX, cameraZoom };
+    }),
+
+  followPenguin: (penguinX, screenMeters, marginMeters) =>
+    set(() => ({
+      cameraTargetX: Math.max(0, penguinX - screenMeters * 0.5 + marginMeters),
+    })),
+
+  setCrashed: ({ x, distance, power = 1 }) => set(() => {
+    const key = Date.now();
+    return {
+      phase: 'crashed',
+      running: false,
+      hasLanded: true,
+      distance,
+      impact: { key, xPx: x, power },
+      vx: 0,
+      vy: 0,
+    };
+  }),
+
+  clearImpact: () => set({ impact: null }),
+}));
+
+export default useGameStore;
+
+```
+
+src/game/physics.ts:
+```ts
+// src/game/physics.ts
+export const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+export const metersToPx = (meters: number, ppm: number) => meters * ppm;
+export const pxToMeters = (px: number, ppm: number) => px / ppm;
+
+export const CRASH_MIN_ANGLE_DEG = 55;
+export const CRASH_MIN_VY        = 7.5;
+export const SLIDE_MIN_VX        = 1.2;
+
+export function calcImpactAngleDeg(vx: number, vy: number): number {
+  const speed = Math.hypot(vx, vy);
+  if (speed <= 1e-6) return 90;
+  return Math.abs(Math.atan2(vy, vx)) * 180 / Math.PI;
+}
+
+export function decideImpactOutcome(vx: number, vy: number) {
+  const angleDeg = calcImpactAngleDeg(vx, vy);
+  const verticalish   = angleDeg >= CRASH_MIN_ANGLE_DEG || Math.abs(vy) >= CRASH_MIN_VY;
+  const lowHorizontal = Math.abs(vx) < SLIDE_MIN_VX;
+  if (verticalish || lowHorizontal) return { outcome: 'crash' as const, angleDeg };
+  return { outcome: 'slide' as const, angleDeg };
+}
+
+export function worldXToScreenPx(px_m: number, cameraX_m: number, ppm: number, marginLeftPx: number) {
+  return metersToPx(px_m - cameraX_m, ppm) + marginLeftPx;
+}
+
+// compat com seu scores.ts (evita TS2554)
+ // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import * as ScoresAny from '../services/scores';
+export function saveScoreCompat(
+  distance: number,
+  power: number = 0,
+  angle: number = 0,
+  mode: 'slide' | 'crash' = 'slide'
+): void {
+  try {
+    const fn: any = (ScoresAny as any)?.saveScore ?? (ScoresAny as any)?.default ?? null;
+    if (typeof fn === 'function') fn(distance, power, angle, mode);
+  } catch {}
+}
+
+```
+
+src/components/IceGround.tsx:
+```tsx
+// src/components/IceGround.tsx
+// ------------------------------------------------------------------------------------
+// IceGround+ — chão de gelo infinito com *profundidade* (sub-gelo) e *neve real*.
+// ✅ API compatível: { cameraX: number } (mais props opcionais, com defaults).
+// - Tiling perfeito (período = largura da tela) + 1px de overlap.
+// - Sub-gelo com "caustics" (faixas móveis) que só se movem com a câmera (não pisca).
+// - Partículas de neve reais (suave, só o overlay anima via RAF).
+// - Opcional: bursts de neve no impacto (impact).
+// ------------------------------------------------------------------------------------
+import React, { useMemo, useRef, useState, useEffect } from 'react';
+
+
+import { View, useWindowDimensions } from 'react-native';
+import Svg, {
+  Defs,
+  LinearGradient,
+  Stop,
+  Rect,
+  Path,
+  G,
+  Circle,
+  ClipPath,
+} from 'react-native-svg';
+
+// Tipos opcionais (não precisa mudar nada no seu uso atual)
+type Impact = { key: number | string; x?: number; power?: number };
+type Props = {
+  cameraX?: number;
+  groundHeight?: number;   // altura total do chão
+  speed?: number;          // parallax do chão (px de deslocamento por px de câmera)
+  density?: number;        // densidade da neve (0.5–2)
+  tileW?: number;          // período opcional; padrão: largura da tela
+  impact?: Impact;         // para "poeira" quando o player cair no chão
+};
+
+export default function IceGround({
+  cameraX = 0,
+  groundHeight = 168,
+  speed = 14,
+  density = 1,
+  tileW: tileWProp,
+  impact,
+}: Props) {
+  // Dimensões "congeladas" (evita relayout flicker)
+  const dims = useWindowDimensions();
+  const W = useRef(dims.width).current;
+  const H = groundHeight;
+
+  // Periodicidade horizontal
+  const tileW = tileWProp ?? W;
+  const overlap = 1;
+
+  // Offset com snap evita gaps subpixel
+  const snap = (v: number) => Math.floor(v);
+  const offset = snap(-((cameraX * speed) % tileW));
+
+  // ---------- Curva do topo (periódica) ----------
+  const TWO_PI = Math.PI * 2;
+  const steps = 120;
+  const baseY = Math.round(H * 0.30); // nível médio do lábio de neve
+  const amp1 = Math.round(H * 0.08);
+  const amp2 = Math.round(H * 0.035);
+
+  const topY = (x: number) => {
+    const t = (x / tileW) * TWO_PI;
+    // combinação de harmônicos com fase fixa => y(0) == y(tileW)
+    return (
+      baseY +
+      amp1 * Math.sin(t + 0.5) +
+      amp2 * Math.sin(2 * t + 1.7)
+    );
+  };
+
+  const fillPath = useMemo(() => {
+    let d = `M 0 ${topY(0).toFixed(2)}`;
+    for (let i = 1; i <= steps; i++) {
+      const x = (i / steps) * tileW;
+      d += ` L ${x.toFixed(2)} ${topY(x).toFixed(2)}`;
+    }
+    d += ` L ${tileW} ${H} L 0 ${H} Z`;
+    return d;
+  }, [tileW, H]);
+
+  const crestPath = useMemo(() => {
+    let d = `M 0 ${topY(0).toFixed(2)}`;
+    for (let i = 1; i <= steps; i++) {
+      const x = (i / steps) * tileW;
+      d += ` L ${x.toFixed(2)} ${topY(x).toFixed(2)}`;
+    }
+    return d;
+  }, [tileW]);
+
+  // ---------- Sub-gelo com “caustics” (apenas com cameraX) ----------
+  // 3 bandas onduladas, recortadas abaixo do topo. O phase desliza com cameraX.
+  const causticPhase = (cameraX * 0.03) % (Math.PI * 2); // move só ao andar
+  const makeCaustic = (y0: number, amp: number, kx: number, phase: number) => {
+    let d = `M 0 ${y0}`;
+    for (let i = 1; i <= 48; i++) {
+      const t = i / 48;
+      const x = t * tileW;
+      const y =
+        y0 +
+        amp * Math.sin(t * TWO_PI * kx + phase) +
+        amp * 0.5 * Math.sin(t * TWO_PI * (kx * 1.9) + phase * 1.3);
+      d += ` L ${x.toFixed(2)} ${y.toFixed(2)}`;
+    }
+    return d;
+  };
+
+  const caustic1 = useMemo(
+    () => makeCaustic(baseY + H * 0.18, H * 0.025, 1.1, 0),
+    [tileW, H]
+  );
+  const caustic2 = useMemo(
+    () => makeCaustic(baseY + H * 0.33, H * 0.020, 1.6, 1.2),
+    [tileW, H]
+  );
+  const caustic3 = useMemo(
+    () => makeCaustic(baseY + H * 0.48, H * 0.018, 2.2, 2.1),
+    [tileW, H]
+  );
+
+  // ---------- Rachaduras discretas, distribuídas deterministicamente ----------
+  const cracks = useMemo(() => {
+    const arr: { x: number; y1: number; y2: number; o: number }[] = [];
+    for (let i = 0; i < 7; i++) {
+      const x = (tileW / 8) * (i + 1);
+      const y1 = baseY + 12 + ((i * 29) % 16);
+      const y2 = H - 10 - ((i * 41) % 24);
+      arr.push({ x, y1, y2, o: 0.08 + (i % 3) * 0.06 });
+    }
+    return arr;
+  }, [tileW, H]);
+
+  // ========= Overlay de neve real (drift) — anima só aqui =========
+  const [t, setT] = useState(0); // segundos
+  const raf = useRef<number | null>(null);
+  const t0 = useRef<number | null>(null);
+  useEffect(() => {
+    const loop = (now: number) => {
+      if (t0.current == null) t0.current = now;
+      setT((now - t0.current) / 1000);
+      raf.current = requestAnimationFrame(loop);
+    };
+    raf.current = requestAnimationFrame(loop);
+    return () => {
+      if (raf.current) cancelAnimationFrame(raf.current);
+      t0.current = null;
+    };
+  }, []);
+
+  // partículas de neve: determinísticas + deslocadas por t (vento suave)
+  const SNOW_N = Math.round(36 * density);
+  const snowParticles = useMemo(() => {
+    const arr: { sx: number; sy: number; r: number; w: number; vy: number; a: number }[] = [];
+    for (let i = 0; i < SNOW_N; i++) {
+      // semente fixa por índice
+      const rnd = (n: number) => {
+        const s = Math.sin((i + 1) * 12.9898 + n * 78.233) * 43758.5453;
+        return s - Math.floor(s);
+      };
+      const sx = rnd(1) * W;                          // posição base x
+      const sy = baseY - 14 - rnd(2) * (baseY * 0.9); // cai do alto do chão pra cima
+      const r = 1.2 + rnd(3) * 2.4;                   // raio
+      const w = 12 + rnd(4) * 24;                     // wiggle horizontal
+      const vy = 18 + rnd(5) * 26;                    // queda px/s
+      const a = 0.20 + rnd(6) * 0.35;                 // alpha
+      arr.push({ sx, sy, r, w, vy, a });
+    }
+    return arr;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [W, baseY, density]);
+
+  // ========= Bursts de impacto opcionais =========
+  type Burst = { id: string | number; x: number; power: number; t0: number };
+  const [bursts, setBursts] = useState<Burst[]>([]);
+  const lastImpactKey = useRef<Impact['key'] | null>(null);
+  useEffect(() => {
+    if (!impact) return;
+    if (lastImpactKey.current === impact.key) return; // já processado
+    lastImpactKey.current = impact.key;               // atualiza a “memória”
+  
+    const px = Math.max(0, Math.min(W, impact.x ?? W * 0.5));
+    const power = Math.max(0.6, Math.min(2, impact.power ?? 1));
+  
+    setBursts((b) => [
+      ...b.slice(-2),
+      { id: impact.key, x: px, power, t0: Date.now() }, // pode usar performance.now() também
+    ]);
+  }, [impact?.key, impact?.x, impact?.power, W]);
+  
+
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: H }}>
+      {/* ===== TILES ===== */}
+      <Svg width={tileW * 2 + overlap} height={H} style={{ position: 'absolute', left: offset, bottom: 0 }}>
+        <Defs>
+          {/* Gradiente de neve */}
+          <LinearGradient id="snowFill" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#FBFEFF" />
+            <Stop offset="1" stopColor="#D5EAFE" />
+          </LinearGradient>
+          {/* Brilho vertical sutil no topo */}
+          <LinearGradient id="snowShade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#000000" stopOpacity="0.07" />
+            <Stop offset="1" stopColor="#000000" stopOpacity="0.00" />
+          </LinearGradient>
+          {/* Sub-gelo mais profundo */}
+          <LinearGradient id="subIce" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#9FCEF2" stopOpacity="0.20" />
+            <Stop offset="1" stopColor="#3D5B86" stopOpacity="0.90" />
+          </LinearGradient>
+          {/* recorte abaixo do topo */}
+          <ClipPath id="belowTop">
+            <Path d={fillPath} />
+          </ClipPath>
+        </Defs>
+
+        {/* === TILE A === */}
+        <G>
+          {/* preenchimento base */}
+          <Rect x={0} y={0} width={tileW} height={H} fill="url(#snowFill)" />
+          {/* sub-gelo com caustics (clip para baixo do topo) */}
+          <G clipPath="url(#belowTop)">
+            <Rect x={0} y={baseY} width={tileW} height={H - baseY} fill="url(#subIce)" />
+            {/* caustics: três faixas que deslizam com cameraX (via causticPhase) */}
+            <Path d={caustic1} stroke="#C7E6FF" strokeOpacity={0.20} strokeWidth={6} fill="none" transform={`translate(${(Math.sin(causticPhase) * 12).toFixed(1)},0)`} />
+            <Path d={caustic2} stroke="#B2DBFF" strokeOpacity={0.18} strokeWidth={5} fill="none" transform={`translate(${(Math.sin(causticPhase + 0.8) * 14).toFixed(1)},0)`} />
+            <Path d={caustic3} stroke="#A0CEFF" strokeOpacity={0.16} strokeWidth={4} fill="none" transform={`translate(${(Math.sin(causticPhase + 1.6) * 10).toFixed(1)},0)`} />
+          </G>
+
+          {/* topo orgânico */}
+          <Path d={fillPath} fill="url(#snowFill)" />
+          <Rect x={0} y={0} width={tileW} height={H * 0.22} fill="url(#snowShade)" />
+          {/* brilho/lábio */}
+          <Path d={crestPath} stroke="#FFFFFF" strokeOpacity={0.78} strokeWidth={1.6} fill="none" />
+          <Path d={crestPath} stroke="#A8D8FF" strokeOpacity={0.22} strokeWidth={3} fill="none" />
+
+          {/* rachaduras leves (verticais) */}
+          <G>
+            {cracks.map((c, idx) => (
+              <Path key={idx} d={`M ${c.x} ${c.y1} L ${c.x} ${c.y2}`} stroke="#9AC8EB" strokeOpacity={c.o} strokeWidth={2} />
+            ))}
+          </G>
+        </G>
+
+        {/* === TILE B (SEAM) === */}
+        <G x={tileW - overlap}>
+          <Rect x={0} y={0} width={tileW} height={H} fill="url(#snowFill)" />
+          <G clipPath="url(#belowTop)">
+            <Rect x={0} y={baseY} width={tileW} height={H - baseY} fill="url(#subIce)" />
+            <Path d={caustic1} stroke="#C7E6FF" strokeOpacity={0.20} strokeWidth={6} fill="none" transform={`translate(${(Math.sin(causticPhase) * 12).toFixed(1)},0)`} />
+            <Path d={caustic2} stroke="#B2DBFF" strokeOpacity={0.18} strokeWidth={5} fill="none" transform={`translate(${(Math.sin(causticPhase + 0.8) * 14).toFixed(1)},0)`} />
+            <Path d={caustic3} stroke="#A0CEFF" strokeOpacity={0.16} strokeWidth={4} fill="none" transform={`translate(${(Math.sin(causticPhase + 1.6) * 10).toFixed(1)},0)`} />
+          </G>
+          <Path d={fillPath} fill="url(#snowFill)" />
+          <Rect x={0} y={0} width={tileW} height={H * 0.22} fill="url(#snowShade)" />
+          {/* SEAM */}
+          <Path d={crestPath} stroke="#FFFFFF" strokeOpacity={0.78} strokeWidth={1.6} fill="none" />
+          <Path d={crestPath} stroke="#A8D8FF" strokeOpacity={0.22} strokeWidth={3} fill="none" />
+          <G>
+            {cracks.map((c, idx) => (
+              <Path key={`b-${idx}`} d={`M ${c.x} ${c.y1} L ${c.x} ${c.y2}`} stroke="#9AC8EB" strokeOpacity={c.o} strokeWidth={2} />
+            ))}
+          </G>
+        </G>
+      </Svg>
+
+      {/* ===== OVERLAYS: Neve real + bursts ===== */}
+      <Svg width={W} height={H} style={{ position: 'absolute', left: 0, bottom: 0 }}>
+        {/* camada 1: neve em queda (drift) */}
+        <G opacity={0.95} pointerEvents="none">
+          {snowParticles.map((p, i) => {
+            // drift horizontal sinusoidal + queda linear
+            const x = (p.sx + Math.sin(t * 0.7 + i) * p.w + W) % W;
+            const y = p.sy + p.vy * t - (cameraX * 0) /* não depende da câmera */;
+            // recycle: quando chega na borda inferior, volta pro topo
+            const yMod = ((y - (-H)) % (H + baseY + 40)) + (-H);
+            const o = Math.max(0, Math.min(1, p.a));
+            return <Circle key={i} cx={x} cy={yMod} r={p.r} fill="#FFFFFF" opacity={o} />;
+          })}
+        </G>
+
+        {/* bursts de impacto (se houver) */}
+        {bursts.map((b) => (
+          <ImpactBurst key={b.id} H={H} baseY={baseY} x={b.x} power={b.power} startedAt={b.t0} />
+        ))}
+      </Svg>
+
+      {/* linha sutil de contato com mundo/HUD */}
+      <View style={{ position: 'absolute', left: 0, right: 0, top: 2, height: 2, backgroundColor: '#9bd0ff55' }} />
+    </View>
+  );
+}
+
+/** Explosão rápida de neve no impacto (autodestrói em ~0.9s) */
+function ImpactBurst({
+  H,
+  baseY,
+  x,
+  power,
+  startedAt,
+}: {
+  H: number;
+  baseY: number;
+  x: number;
+  power: number;
+  startedAt: number;
+}) {
+  const [t, setT] = useState(0);
+  const raf = useRef<number | null>(null);
+  useEffect(() => {
+    const loop = () => {
+      setT((performance.now() - startedAt) / 1000);
+      if (t < 0.95) raf.current = requestAnimationFrame(loop);
+    };
+    raf.current = requestAnimationFrame(loop);
+    return () => {
+      if (raf.current) cancelAnimationFrame(raf.current);
+    };
+  }, [startedAt, t]);
+
+  const GRAV = 880; // queda
+  const N = Math.round(16 * power);
+  const items: React.ReactNode[] = [];
+
+
+  for (let i = 0; i < N; i++) {
+    const rnd = (n: number) => {
+      const s = Math.sin((i + 1) * 12.9898 + n * 78.233) * 43758.5453;
+      return s - Math.floor(s);
+    };
+    const vx = (rnd(1) * 2 - 1) * (140 + 60 * power); // leque horizontal
+    const vy0 = - (260 + 120 * rnd(2) * power);       // impulso para cima
+    const xt = x + vx * t;
+    const yt = baseY - 3 + vy0 * t + 0.5 * GRAV * t * t;
+    if (yt > H - 1) continue;
+    const k = Math.max(0, 1 - t / 0.95);
+    const r = 1.6 + 2.6 * rnd(3) * power * k;
+    const a = 0.9 * k;
+    items.push(<Circle key={i} cx={xt} cy={yt} r={r} fill="#FFFFFF" opacity={a} />);
+  }
+
+  return <G pointerEvents="none">{items}</G>;
+}
+
+```
+
+src/components/ImpactSnow.tsx:
+```tsx
+// src/components/ImpactSnow.tsx
+import React, { useEffect, useMemo, useRef } from 'react';
+import { View, StyleSheet, Animated, Easing } from 'react-native';
+
+type Variant = 'up' | 'radial';
+
+type Props = {
+  x: number;
+  y: number;
+  count?: number;          // quantidade de partículas
+  durationMs?: number;     // duração total da animação
+  variant?: Variant;       // 'up' (p/ cima) | 'radial' (360°)
+  colors?: string[];       // cores alternadas das partículas
+  onDone?: () => void;     // callback ao terminar
+};
+
+const DEFAULT_COLORS = ['#ffffff', '#e0f2fe', '#dbeafe'];
+
+export default function ImpactSnow({
+  x,
+  y,
+  count = 14,
+  durationMs = 900,
+  variant = 'up',
+  colors = DEFAULT_COLORS,
+  onDone,
+}: Props) {
+  const parts = Math.max(4, count);
+  const timers = useRef<Animated.CompositeAnimation[]>([]);
+
+  const seeds = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < parts; i++) {
+      const a = variant === 'radial'
+        ? (i / parts) * Math.PI * 2
+        : (Math.random() * Math.PI) / 2 + Math.PI; // jato pra cima/diagonal
+      const r = 8 + Math.random() * 14; // alcance
+      const size = 2 + Math.random() * 3;
+      const life = 0.6 + Math.random() * 0.5; // vida relativa (0..1)
+      arr.push({ angle: a, radius: r, size, life });
+    }
+    return arr;
+  }, [parts, variant]);
+
+  const anims = useMemo(
+    () =>
+      seeds.map(() => ({
+        tx: new Animated.Value(0),
+        ty: new Animated.Value(0),
+        op: new Animated.Value(1),
+        sc: new Animated.Value(1),
+      })),
+    [seeds]
+  );
+
+  useEffect(() => {
+    // inicia animações
+    timers.current = anims.map((a, idx) => {
+      const seed = seeds[idx];
+      const dx = Math.cos(seed.angle) * seed.radius;
+      const dy = Math.sin(seed.angle) * seed.radius;
+
+      return Animated.parallel([
+        Animated.timing(a.tx, {
+          toValue: dx,
+          duration: durationMs * seed.life,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(a.ty, {
+          toValue: dy,
+          duration: durationMs * seed.life,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(a.op, {
+          toValue: 0,
+          duration: durationMs,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(a.sc, {
+          toValue: 0.8,
+          duration: durationMs,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ]);
+    });
+
+    Animated.stagger(8, timers.current).start(({ finished }) => {
+      if (finished && onDone) onDone();
+    });
+
+    return () => timers.current.forEach(t => t.stop());
+  }, [anims, seeds, durationMs, onDone]);
+
+  return (
+    <View style={[StyleSheet.absoluteFillObject, { left: x, top: y }]}>
+      {anims.map((a, i) => {
+        const c = colors[i % colors.length];
+        const size = seeds[i].size;
+        return (
+          <Animated.View
+            key={i}
+            style={{
+              position: 'absolute',
+              width: size,
+              height: size,
+              borderRadius: size / 2,
+              backgroundColor: c,
+              opacity: a.op,
+              transform: [{ translateX: a.tx }, { translateY: a.ty }, { scale: a.sc }],
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+```
+
+src/components/Penguin.tsx:
+```tsx
+// src/components/Penguin.tsx
+import React, { useMemo, useEffect, useRef, useState } from 'react';
+import { View } from 'react-native';
+import Svg, {
+  G, Path, Circle, Ellipse, Rect, Defs, LinearGradient, Stop,
+} from 'react-native-svg';
+import useGameStore, { GameState } from '../store/useGameStore';
+
+type Props = {
+  ppm: number;
+  marginLeftPx?: number;
+  groundBottomPx?: number;
+};
+
+export default function Penguin({
+  ppm,
+  marginLeftPx = 60,
+  groundBottomPx = 16,
+}: Props) {
+  // ===== Store =====
+  const px        = useGameStore((s: GameState) => s.px);
+  const py        = useGameStore((s: GameState) => s.py);
+  const vy        = useGameStore((s: GameState) => s.vy ?? 0);
+  const vx        = useGameStore((s: GameState) => s.vx ?? 0);
+  const hasLanded = useGameStore((s: GameState) => s.hasLanded ?? false);
+  const cameraX   = useGameStore((s: GameState) => s.cameraX);
+  const angleDeg  = useGameStore((s: GameState) => s.angleDeg ?? 0);
+  const phase     = useGameStore((s: any) => s.phase ?? 'power');
+
+  // se já tiver lógica de crash com “cabeça na neve”, esconda o corpo:
+  if (phase === 'crashed') return null;
+
+  const showAimDots = phase === 'power' || phase === 'angle';
+
+  // ===== Constantes visuais/âncoras =====
+  const PENGUIN_SCALE = 0.52;
+  const CANNON_ANCHOR_X = 68;
+  const CANNON_ANCHOR_BOTTOM = 88;
+
+  // Lift visual (pré-lançamento)
+  const PRELAUNCH_LIFT_PX = 68;
+  const PHASE_LIFT_MS     = 220;
+  const LIFT_HOLD_MS      = 0;
+
+  // ===== Lift =====
+  const [postLaunchLift, setPostLaunchLift] = useState(0);
+  const rafRef = useRef<number | null>(null);
+  const pyRef = useRef(py);
+  useEffect(() => { pyRef.current = py; }, [py]);
+  const launchPyRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+
+    if (phase === 'flight') {
+      setPostLaunchLift(PRELAUNCH_LIFT_PX);
+      launchPyRef.current = pyRef.current;
+
+      const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const loop = (now: number) => {
+        const elapsed = now - t0;
+        const u = Math.min(1, Math.max(0, (elapsed - LIFT_HOLD_MS) / PHASE_LIFT_MS));
+        const timeCurve = PRELAUNCH_LIFT_PX * 0.5 * (1 + Math.cos(Math.PI * u)); // 68..0
+        const basePy = launchPyRef.current ?? pyRef.current;
+        const climbedPx = Math.max(0, (pyRef.current - basePy) * ppm);
+        const climbCurve = Math.max(0, PRELAUNCH_LIFT_PX - climbedPx);
+        const val = Math.max(0, Math.min(timeCurve, climbCurve));
+        setPostLaunchLift(val);
+        if (val <= 0 && u >= 1) { rafRef.current = null; return; }
+        rafRef.current = requestAnimationFrame(loop);
+      };
+      rafRef.current = requestAnimationFrame(loop);
+    } else {
+      setPostLaunchLift(0);
+      launchPyRef.current = null;
+    }
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); rafRef.current = null; };
+  }, [phase, ppm]);
+
+  // ===== Posicionamento mundo → tela =====
+  const isPrelaunch = phase === 'power' || phase === 'angle';
+  const extraLift = isPrelaunch ? PRELAUNCH_LIFT_PX : postLaunchLift;
+
+  const left = Math.round((px - cameraX) * ppm + marginLeftPx - 20 + CANNON_ANCHOR_X);
+  const bottom = Math.round(groundBottomPx + py * ppm + CANNON_ANCHOR_BOTTOM + extraLift);
+
+  // ===== Pontinhos de mira =====
+  const originX = 20, originY = 22;
+  const DOTS = 14, SPACING = 18, START_OFFSET = 20, MAX_FADE = 0.1, DOT_R = 5;
+  const dots = useMemo(() => {
+    const a = (-angleDeg * Math.PI) / 180;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    const arr: { x: number; y: number; r: number; op: number }[] = [];
+    for (let i = 0; i < DOTS; i++) {
+      const d = START_OFFSET + i * SPACING;
+      const x = originX + d * cos;
+      const y = originY + d * sin;
+      const t = i / (DOTS - 1);
+      arr.push({ x, y, r: DOT_R * (1 - 0.4 * t), op: MAX_FADE + (1 - MAX_FADE) * (1 - t) });
+    }
+    return arr;
+  }, [angleDeg]);
+
+  // ===== Poses =====
+  type Pose = 'front' | 'side' | 'slide';
+  const SLIDE_VX_MIN  = 0.6;   // m/s
+  const NEAR_GROUND_Y = 0.04;  // “está no chão”
+  const EPS_VY        = 0.01;
+
+  const hasFlownRef = useRef(false);
+  useEffect(() => { if (phase === 'flight') hasFlownRef.current = true; }, [phase]);
+  useEffect(() => { if (py > NEAR_GROUND_Y + 0.02) hasFlownRef.current = true; }, [py]);
+
+  const pose: Pose = useMemo(() => {
+    if (!hasFlownRef.current) return 'front';
+    const onGround = hasLanded || py <= NEAR_GROUND_Y || Math.abs(vy) <= EPS_VY;
+    if (onGround) return Math.abs(vx) > SLIDE_VX_MIN ? 'slide' : 'front';
+    return 'side';
+  }, [hasLanded, py, vx, vy]);
+
+  // ===== Cores =====
+  const navy = '#0B2D5B';
+  const belly = '#FFFFFF';
+  const beak = '#F5A623';
+  const feet = '#F5A623';
+  const shadow = '#0b2d5b33';
+
+  // ===== Artes =====
+  const FrontPenguin = () => (
+    <G>
+      {/* sombra */}
+      <Ellipse cx={60} cy={95} rx={50} ry={18} fill={shadow} opacity={0.65} />
+      {/* corpo */}
+      <Ellipse cx={60} cy={52} rx={38} ry={6} fill={shadow} />
+      <Path d="M28 6 Q60 -4 92 6 Q102 16 102 42 Q102 72 92 92 L28 92 Q18 72 18 42 Q18 16 28 6 Z" fill={navy} />
+      <Path d="M34 26 Q60 10 86 26 Q92 34 92 50 Q92 74 60 82 Q28 74 28 50 Q28 34 34 26 Z" fill={belly} />
+      {/* asas */}
+      <Path d="M18 52 Q6 60 16 72 Q26 66 26 54 Z" fill={navy} />
+      <Path d="M104 52 Q116 60 106 72 Q96 66 96 54 Z" fill={navy} />
+      {/* olhos */}
+      <Circle cx={50} cy={34} r={10} fill="#1f2937" />
+      <Circle cx={72} cy={34} r={10} fill="#1f2937" />
+      <Circle cx={47} cy={31} r={3} fill="#fff" />
+      <Circle cx={69} cy={31} r={3} fill="#fff" />
+      {/* bico e pés */}
+      <Path d="M56 40 L64 40 L60 48 Z" fill={beak} />
+      <Rect x={36} y={88} width={16} height={6} rx={3} fill={feet} />
+      <Rect x={68} y={88} width={16} height={6} rx={3} fill={feet} />
+    </G>
+  );
+
+  const SidePenguin = () => (
+    <G transform="translate(158,132) scale(0.35) translate(-498,-352)">
+      <Path d="M -33 152 C -13 142 17 144 37 158 C 20 170 -10 174 -28 166 Z" fill="#f59e0b" />
+      <Path d="M 10 124 C -42 136 106 74 142 92 C 282 38 322 90 322 130 C 322 180 282 210 197 215 C 112 220 32 195 12 160 Z" fill="#0a2b4c" />
+      <Circle cx={234} cy={101} r={100} fill="#0a2b4c" />
+      <Circle cx={280} cy={106} r={26} fill="#092b4d" stroke="#222" strokeWidth={0.5} />
+      <Ellipse cx={196} cy={144} rx={98} ry={50} fill="#e1ecf3" opacity={0.127} />
+      <Circle cx={262} cy={86} r={68} fill="#e6f1f7" />
+      <Circle cx={262} cy={53} r={32} fill="#092b4d" stroke="#222" strokeWidth={2} />
+      <Circle cx={258} cy={42} r={6} fill="#f5f5f5" stroke="#222" strokeWidth={2} />
+      <Path d="M 63 95 C 47 83 45 63 65 49 C 95 67 115 87 109 107 C 93 109 77 105 63 95 Z"
+            fill="#092b4d" stroke="#FFFFFF" strokeWidth={0} opacity={1} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M -43 116 C -23 106 7 108 27 122 C 10 134 -20 138 -38 130 Z" fill="#f59e0b" />
+      <Path d="M 316 58 L 352 58 L 322 78 Z" fill="#f59e0b" stroke="#222" strokeWidth={0.5} />
+      <Path d="M60,60 L66,58 L62,64 Z" fill="#ffffff" opacity={0.3} />
+      <Path d="M140,50 L146,48 L142,54 Z" fill="#ffffff" opacity={0.3} />
+      <Path d="M180,110 L186,108 L182,114 Z" fill="#ffffff" opacity={0.3} />
+      <Ellipse cx={20} cy={56} rx={60} ry={1.6} fill="#d0d0e2" opacity={0.7} />
+      <Ellipse cx={218} cy={230} rx={60} ry={2} fill="#aaaaee" opacity={0.7} />
+      <Ellipse cx={82} cy={170} rx={60} ry={1.1} fill="#aaaaee" opacity={0.7} />
+      <Ellipse cx={172} cy={112} rx={60} ry={2} fill="#aaaaee" opacity={0.7} />
+      <Ellipse cx={14} cy={218} rx={60} ry={2} fill="#c2c2f5" opacity={0.7} />
+      <Ellipse cx={-36} cy={126} rx={60} ry={4} fill="#aaf" opacity={0.7} />
+    </G>
+  );
+
+  const SlidePenguin = () => (
+    <G transform="translate(8,8) scale(0.36) rotate(15)">
+      {/* sombra geral */}
+      <Ellipse cx={180} cy={165} rx={160} ry={98} fill={shadow} opacity={0.45} />
+      <Ellipse cx={178} cy={189} rx={160} ry={60} fill="#00000033" opacity={0.45} />
+      <Path d="M -10 120 C -26 140 158 70 158 96 C 282 38 322 90 322 130 C 322 180 282 210 197 215 C 112 220 32 195 12 160 Z" fill="#0a2b4c" />
+      <Circle cx={232} cy={113} r={98} fill="#0a2b4c" />
+      <Circle cx={280} cy={106} r={26} fill="#092b4d" stroke="#222" strokeWidth={0.5} />
+      <Circle cx={264} cy={116} r={66} fill="#e5e7eb" stroke="#222" strokeWidth={2} />
+      <Circle cx={264} cy={116} r={68} fill="#e6f1f7" />
+      <Circle cx={270} cy={110} r={8} fill="#FFFFFF" />
+      <Circle cx={290} cy={103} r={32} fill="#092b4d" stroke="#222" strokeWidth={2} />
+      <Circle cx={300} cy={98} r={6} fill="#f5f5f5" stroke="#222" strokeWidth={2} />
+      <Path d="M 104 154 C 88 142 86 122 106 108 C 136 126 156 146 150 166 C 134 168 118 164 104 154 Z"
+            fill="#2a2b2d" opacity={0.45} />
+      <Path d="M 109 151 C 93 139 97 105 111 105 C 147 109 167 129 161 149 C 139 165 123 161 109 151 Z"
+            fill="#7083a9" stroke="#FFFFFF" strokeWidth={0} opacity={0.4} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M -26 156 C -6 146 24 148 44 162 C 27 174 -3 178 -21 170 Z" fill="#f59e0b" />
+      <Path d="M 326 118 L 356 130 L 326 140 Z" fill="#f59e0b" stroke="#222" strokeWidth={0.5} />
+      <Path d="M60,60 L66,58 L62,64 Z" fill="#ffffff" opacity={0.3} />
+      <Path d="M100,90 L106,88 L102,94 Z" fill="#ffffff" opacity={0.3} />
+      <Path d="M140,50 L146,48 L142,54 Z" fill="#ffffff" opacity={0.3} />
+      <Path d="M180,110 L186,108 L182,114 Z" fill="#ffffff" opacity={0.3} />
+      <Ellipse cx={136} cy={203} rx={26} ry={1.5} fill="#c0c0e3" opacity={0.7} />
+      <Ellipse cx={146} cy={213} rx={26} ry={1.5} fill="#c0c0e3" opacity={0.7} />
+      <Ellipse cx={82} cy={197} rx={26} ry={1.5} fill="#c0c0e3" opacity={0.7} />
+      <Ellipse cx={92} cy={207} rx={26} ry={1.5} fill="#c0c0e3" opacity={0.7} />
+      <Ellipse cx={202} cy={215} rx={26} ry={1.5} fill="#c0c0e3" opacity={0.7} />
+      <Ellipse cx={182} cy={208} rx={28} ry={0.1} fill="#d6d6d6" opacity={0.7} />
+      <Ellipse cx={46} cy={140} rx={60} ry={0.1} fill="#ebebeb" opacity={0.7} />
+      <Ellipse cx={88} cy={150} rx={60} ry={0.1} fill="#ebebeb" opacity={0.7} />
+      <Ellipse cx={98} cy={160} rx={60} ry={0.1} fill="#ebebeb" opacity={0.7} />
+    </G>
+  );
+
+  // ===== Tilt/Wiggle por pose =====
+  const flightTilt  = -angleDeg * 0.6;  // no ar (side)
+  const landedTilt  = -20;              // deslizando
+  const poseTilt = pose === 'side' ? flightTilt : pose === 'slide' ? landedTilt : 0;
+  const landedWiggle = pose === 'slide' ? Math.sin(px * 2.2) * 1.6 : 0;
+
+  // afundamento visual quando desliza
+  const slideOffsetY = pose === 'slide' ? -12 : 0;
+
+  // ===== Render =====
+  return (
+    <View style={{ position: 'absolute', left, bottom, overflow: 'visible' }} pointerEvents="none">
+      <Svg width={200} height={160} viewBox="0 -8 120 120" style={{ overflow: 'visible' }}>
+        <Defs>
+          <LinearGradient id="bellyGloss" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#ffffff" stopOpacity={0.85} />
+            <Stop offset="1" stopColor="#e7eefb" stopOpacity={0.95} />
+          </LinearGradient>
+        </Defs>
+
+        {/* Pinguim (pose real) */}
+        <G transform={`translate(-15,62) scale(${PENGUIN_SCALE}) translate(-10,-40) translate(0, ${slideOffsetY})`}>
+          <G transform={`translate(${landedWiggle},0) rotate(${poseTilt}, 133, 30)`}>
+            {pose === 'slide' ? <SlidePenguin /> : pose === 'side' ? <SidePenguin /> : <FrontPenguin />}
+          </G>
+        </G>
+
+        {/* Pontinhos de mira (somente na mira) */}
+        {showAimDots && (
+          <G>
+            {dots.map((d, i) => (
+              <Circle key={`aim-${i}`} cx={d.x} cy={d.y} r={d.r} fill="#FFFFFF" opacity={d.op} />
+            ))}
+          </G>
+        )}
+      </Svg>
+    </View>
+  );
+}
+
+```
+
+src/components/HUD.tsx:
+```tsx
+// src/components/HUD.tsx
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import PowerBar from './PowerBar';
+import AngleSlider from './AngleSlider';
+import useGameStore, { GameState } from '../store/useGameStore';
+import { Ionicons } from '@expo/vector-icons';
+
+export default function HUD() {
+  const reset     = useGameStore((s: GameState) => s.reset);
+  const distance  = useGameStore((s: GameState) => s.distance);
+  const hasLanded = useGameStore((s: GameState) => s.hasLanded);
+  const running   = useGameStore((s: GameState) => s.running);
+  const phase     = useGameStore((s: GameState) => s.phase);
+  const pressMain = useGameStore((s: GameState) => s.pressMain);
+
+  const angleDeg  = useGameStore((s: GameState) => s.angleDeg ?? 0);
+  const powerVal  = useGameStore((s: GameState) => s.power01 ?? 0);
+
+  return (
+    <View style={styles.hud} pointerEvents="box-none">
+      <View style={styles.topRow}>
+        <Text style={styles.title}>PINGUINI</Text>
+      </View>
+
+      <View style={styles.leftBars} pointerEvents="box-none">
+        <View style={styles.barCard}>
+          <Text style={[styles.badge, styles.badgeForce]}>Força</Text>
+          <PowerBar />
+        </View>
+
+        <View style={styles.barCard}>
+          <Text style={styles.label}> </Text>
+          <Text style={styles.label}></Text>
+          <Text style={[styles.badge, styles.badgeAngle]}>{Math.round(angleDeg)}°</Text>
+          <AngleSlider />
+        </View>
+      </View>
+
+      <View style={styles.sideButtons} pointerEvents="box-none">
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={hasLanded && !running ? reset : pressMain}
+          style={[
+            styles.floatBtn,
+            hasLanded && !running ? styles.resetBtn : styles.mainBtn,
+          ]}
+        >
+          {hasLanded && !running ? (
+            <Ionicons name="arrow-undo" size={32} color="#fff" />
+          ) : phase === 'power' ? (
+            <Ionicons name="flash" size={32} color="#fff" />
+          ) : phase === 'angle' ? (
+            <Ionicons name="speedometer" size={32} color="#fff" />
+          ) : (
+            <Ionicons name="rocket" size={32} color="#fff" />
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={reset}
+          style={[styles.floatBtn, styles.resetBtn]}
+        >
+          <Text style={styles.floatIcon}>↻</Text>
+        </TouchableOpacity>
+      </View>
+
+      {(hasLanded && !running) || phase === 'crashed' ? (
+        <View style={styles.resultTop}>
+          <View style={styles.row}>
+            <Text style={styles.caption}>DISTÂNCIA</Text>
+            <View style={{ height: 4 }} />
+            <View style={styles.numRow}>
+              <Text style={styles.value}>{distance.toFixed(1)}</Text>
+              <Text style={styles.unit}>m</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const BTN_SIZE = 64;
+const BAR_CARD_W = 64;
+const BAR_CARD_H = 160;
+const INSET = 8;
+
+const styles = StyleSheet.create({
+  hud: {
+    position: 'absolute',
+    left: 0, right: 0, top: 0, bottom: 0,
+    padding: 12,
+  },
+  topRow: { paddingTop: 8, alignItems: 'center' },
+  title: {
+    fontSize: 28, fontWeight: '900', color: '#F59E0B', letterSpacing: 1,
+    textShadowColor: 'rgba(0,0,0,0.25)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4,
+  },
+  leftBars: {
+    position: 'absolute',
+    left: 16,
+    top: 140,
+    gap: 14,
+  },
+  barCard: {
+    width: BAR_CARD_W,
+    height: BAR_CARD_H,
+    borderRadius: 18,
+    backgroundColor: '#ffffffee',
+    paddingVertical: INSET,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.8)',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: 4,
+    alignSelf: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  badgeForce: { backgroundColor: '#0ea5e9' },
+  badgeAngle: { backgroundColor: '#16a34a' },
+  resultTop: {
+    position: 'absolute',
+    top: 504,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 80,
+    marginLeft: 20,
+  },
+  row: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  caption: {
+    fontSize: 10,
+    letterSpacing: 1.6,
+    color: 'rgba(15,23,42,0.55)',
+    fontWeight: '800',
+  },
+  numRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  value: {
+    fontSize: 28,
+    lineHeight: 30,
+    fontWeight: '900',
+    color: '#0f172a',
+    textShadowColor: 'rgba(96,165,250,0.35)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
+  },
+  unit: {
+    marginLeft: 6,
+    marginBottom: 2,
+    fontSize: 14,
+    fontWeight: '800',
+    color: 'rgba(15,23,42,0.7)',
+  },
+  sideButtons: {
+    position: 'absolute',
+    right: 16,
+    top: 140,
+    alignItems: 'flex-end',
+    gap: 14,
+  },
+  floatBtn: {
+    width: BTN_SIZE,
+    height: BTN_SIZE,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.7)',
+  },
+  mainBtn: { backgroundColor: '#f59e0b' },
+  resetBtn: { backgroundColor: '#3b82f6' },
+  floatIcon: { fontSize: 28, color: '#fff' },
+  result: {
+    position: 'absolute',
+    top: 504,
+    alignSelf: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  resultTxt: {
+    fontWeight: '800',
+    color: '#0f172a',
+    fontSize: 18,
+  },
+  label: {
+    fontSize: 12,
+    color: 'transparent',
+    marginVertical: 2,
+  },
+});
+
+```
+
+src/components/ArrowIndicator.tsx:
+```tsx
+// src/components/ArrowIndicator.tsx
+import React, { useEffect, useMemo, useRef } from 'react';
+import { View, Text, StyleSheet, useWindowDimensions, Animated, Easing } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import useGameStore, { GameState } from '../store/useGameStore';
+import { metersToPx } from '../game/physics';
+
+type Props = {
+  ppm: number;
+  marginLeftPx: number;
+  groundBottomPx: number;
+};
+
+export default function ArrowIndicator({ ppm, marginLeftPx, groundBottomPx }: Props) {
+  const px     = useGameStore((s: GameState) => s.px);
+  const py     = useGameStore((s: GameState) => s.py);
+  const cameraX= useGameStore((s: GameState) => s.cameraX);
+  const phase  = useGameStore((s: GameState) => s.phase);
+
+  const { width: W, height: H } = useWindowDimensions();
+
+  // Mundo → tela
+  const xPx = metersToPx(px, ppm) - metersToPx(cameraX, ppm) + marginLeftPx;
+  const yPx = H - (groundBottomPx + py * ppm);
+
+  // Só aparece quando está voando e acima do topo (fora da tela)
+  const visible = phase === 'flight' && yPx <= 12;
+
+  // Largura aproximada do marcador (ícone + texto)
+  const INDICATOR_W = 84;
+  // Clampa posição horizontal para nunca sair da tela
+  const clampedLeft = useMemo(() => {
+    const left = xPx - INDICATOR_W / 2;
+    return Math.max(8, Math.min(left, W - INDICATOR_W - 8));
+  }, [xPx, W]);
+
+  // ---- Animações (pulso + bounce + glow) ----
+  const pulse = useRef(new Animated.Value(0)).current;   // escala/opacity
+  const bob   = useRef(new Animated.Value(0)).current;   // quique vertical
+
+  useEffect(() => {
+    if (!visible) return;
+    // Pulso contínuo
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 800, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 800, easing: Easing.in(Easing.quad),  useNativeDriver: true }),
+      ])
+    );
+    // Quique contínuo (sutil)
+    const bobLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bob, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(bob, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    );
+    pulseLoop.start();
+    bobLoop.start();
+    return () => {
+      pulseLoop.stop();
+      bobLoop.stop();
+      pulse.setValue(0);
+      bob.setValue(0);
+    };
+  }, [visible, pulse, bob]);
+
+  if (!visible) return null;
+
+  // Interpolações
+  const scale   = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
+  const glowOp  = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.6] });
+  const bobDy   = bob.interpolate({   inputRange: [0, 1], outputRange: [0, -4] });
+
+  // Altura (m) só pra informar — opcional, arredondado
+  const altitudeM = Math.max(0, py);
+
+  return (
+    <View pointerEvents="none" style={[styles.wrap, { left: clampedLeft }]}>
+      {/* “Glow” por trás */}
+      <Animated.View
+        style={[
+          styles.glow,
+          {
+            opacity: glowOp,
+            transform: [{ scale }],
+          },
+        ]}
+      />
+      {/* Conteúdo do indicador */}
+      <Animated.View
+        style={[
+          styles.arrow,
+          {
+            transform: [{ translateY: bobDy }],
+          },
+        ]}
+      >
+        <Ionicons name="arrow-up-circle" size={36} color="#f59e0b" />
+        <Text style={styles.txt}>Pinguim</Text>
+        <Text style={styles.alt}>{altitudeM.toFixed(0)} m</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrap: {
+    position: 'absolute',
+    top: 6,               // colado no topo
+    width: 84,
+    alignItems: 'center',
+  },
+  arrow: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glow: {
+    position: 'absolute',
+    top: -2,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#f59e0b',
+    filter: undefined as any, // RN ignora; deixado p/ web compat
+  },
+  txt: {
+    marginTop: 2,
+    fontSize: 10,
+    color: '#fff',
+    fontWeight: '700',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  alt: {
+    fontSize: 9,
+    color: '#e5e7eb',
+    fontWeight: '500',
+  },
+});
+
+```
+
+src/components/Cannon.tsx:
+```tsx
+// src/components/Cannon.tsx
+// ------------------------------------------------------------------------------------
+// SPRING LAUNCHER — compressão forte + balanço lateral no pós-lançamento
+// • Lê cameraX, power01 e phase do store.
+// • Quando phase muda para 'flight' → comprime forte (proporcional à força),
+//   solta com overshoot e balança esquerda↔direita com amortecimento.
+// • Tampa fixa (não usa angleDeg).
+// • FIX TypeScript TS2345: cleanups de useEffect sempre retornam void.
+// ------------------------------------------------------------------------------------
+
+import React, { useEffect, useRef, useState } from 'react';
+import { View } from 'react-native';
+import Svg, {
+  Defs, LinearGradient, Stop, Rect, Circle, Ellipse, Path, G, Polygon
+} from 'react-native-svg';
+import useGameStore, { GameState } from '../store/useGameStore';
+
+type Props = {
+  xMeters: number;
+  yBottomPx: number;
+  ppm: number;
+  marginLeftPx?: number;
+  scale?: number;
+};
+
+export default function Cannon({
+  xMeters,
+  yBottomPx,
+  ppm,
+  marginLeftPx = 60,
+  scale = 1,
+}: Props) {
+  // compat: lemos angleDeg mas não usamos (a mira está no pinguim)
+  useGameStore((s: GameState) => s.angleDeg ?? 0);
+  const cameraX = useGameStore((s: GameState) => s.cameraX ?? 0);
+  const power01 = useGameStore((s: GameState) => s.power01 ?? 0);
+  const phase   = useGameStore((s: GameState) => s.phase   ?? 'power');
+
+  // ----- Layout -----
+  const leftPx = Math.round((xMeters - cameraX) * ppm + marginLeftPx);
+  const bottom = Math.round(yBottomPx);
+  const W = 220 * scale;
+  const H = 160 * scale;
+
+  // Geometria
+  const baseW = 120 * scale;
+  const baseH = 26 * scale;
+  const baseX = 20 * scale;
+  const baseY = H - baseH - 10 * scale;
+
+  const springTopX0 = baseX + baseW * 0.5;
+  const springTopY0 = baseY - 74 * scale; // repouso
+
+  const capW = 88 * scale;
+  const capH = 14 * scale;
+
+  // Paleta
+  const purple = '#2C2768';
+  const purpleShadow = '#241E59';
+  const yellow = '#FFD86B';
+
+  // ----- Animação (acionada por phase → 'flight') -----
+  const prevPhase = useRef<string>(phase);
+  const [animStart, setAnimStart] = useState<number | null>(null);
+  const [animT, setAnimT] = useState(0);
+  const rafRef = useRef<number | null>(null);
+  const savedPower = useRef(0);
+
+  useEffect(() => {
+    const now = () =>
+      typeof performance !== 'undefined' && performance.now
+        ? performance.now()
+        : Date.now();
+
+    const startAnim = () => {
+      const t0 = now();
+      setAnimStart(t0);
+      setAnimT(0);
+
+      const tick = () => {
+        const t = (now() - t0) / 1000;
+        setAnimT(t);
+        if (t < 1.2) {
+          rafRef.current = requestAnimationFrame(tick);
+        } else {
+          setAnimStart(null);
+          setAnimT(1.2);
+          rafRef.current = null;
+        }
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    if (prevPhase.current !== 'flight' && phase === 'flight') {
+      savedPower.current = Math.max(0, Math.min(1, power01));
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      startAnim();
+    }
+    prevPhase.current = phase;
+
+    // ✅ cleanup sempre retorna void (corrige TS2345)
+    return () => {
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [phase, power01]);
+
+  // ---------------- Curvas ----------------
+  // Compressão vertical (mais agressiva)
+  const Amax = 0.75 * savedPower.current; // até 75% de compressão
+  const tCompress = 0.16;                  // rápido pra baixo
+  const omega = 18;                        // osc. vertical
+  const damp  = 5.0;                       // amortecimento vertical
+
+  function compressionK(): number {
+    if (animStart == null) return 1;
+    const t = animT;
+    if (t <= tCompress) {
+      const u = t / tCompress;
+      const ease = 1 - Math.pow(1 - u, 3); // ease-out cúbica
+      return 1 - Amax * ease;              // 1 → 1-Amax
+    }
+    const td = t - tCompress;
+    const overshoot = Amax * 0.8;
+    return 1 + overshoot * Math.exp(-damp * td) * Math.cos(omega * td);
+  }
+
+  // Balanço lateral após soltar
+  function lateralSway(): number {
+    if (animStart == null) return 0;
+    const t = Math.max(0, animT - tCompress);
+    const swayOmega = 9;                   // frequência do balanço
+    const swayDamp  = 2.6;                 // amortecimento lateral
+    const amp = (12 + 12 * savedPower.current) * scale; // px
+    return amp * Math.exp(-swayDamp * t) * Math.sin(swayOmega * t);
+  }
+
+  const k = compressionK();
+  const swayX = lateralSway();
+
+  // Mais deslocamento vertical para sensação de “espremida”
+  const springTopY = springTopY0 - (1 - k) * (34 * scale); // antes ~22
+  const springTopX = springTopX0 + swayX;
+
+  // Mola (zigue-zague). Afinamos um pouco quando comprimida.
+  const springPath = () => {
+    const turns = 6;
+    const height = (baseY - springTopY) - 6 * scale;
+    const step = height / turns;
+    const baseWidth = 46 * scale;
+    const width = baseWidth * (0.9 + 0.1 * k); // mais estreita quando k é menor
+    const left  = springTopX - width * 0.5;
+    const right = springTopX + width * 0.5;
+    let y = baseY - 6 * scale;
+    let x = left;
+    let d = `M ${x} ${y}`;
+    for (let i = 0; i < turns; i++) {
+      x = (i % 2 === 0) ? right : left;
+      y -= step;
+      d += ` L ${x} ${y}`;
+    }
+    d += ` L ${springTopX} ${springTopY}`;
+    return d;
+  };
+
+  // Estalo curto no início
+  const showPop = animStart != null && animT < 0.18;
+  const popScale = showPop ? 1 + 0.45 * savedPower.current : 0;
+
+  // Tilt sutil da tampa conforme balanço
+  const capTiltDeg = (swayX / (24 * scale)) * 6; // ~±6°
+
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', left: leftPx, bottom }}>
+      <Svg width={W} height={H}>
+        <Defs>
+          <LinearGradient id="capGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={purple} />
+            <Stop offset="1" stopColor={purpleShadow} />
+          </LinearGradient>
+          <LinearGradient id="baseGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={purple} />
+            <Stop offset="1" stopColor={purpleShadow} />
+          </LinearGradient>
+        </Defs>
+
+        {/* Sombra */}
+        <Ellipse
+          cx={baseX + baseW * 0.5}
+          cy={H - 6 * scale}
+          rx={70 * scale}
+          ry={10 * scale}
+          fill="#000"
+          opacity={0.10}
+        />
+
+        {/* Base */}
+        <Rect
+          x={baseX - 8 * scale}
+          y={baseY + baseH - 10 * scale}
+          width={baseW + 16 * scale}
+          height={8 * scale}
+          rx={4 * scale}
+          fill={purpleShadow}
+          opacity={0.9}
+        />
+        <Rect
+          x={baseX}
+          y={baseY}
+          width={baseW}
+          height={baseH}
+          rx={baseH * 0.5}
+          fill="url(#baseGrad)"
+        />
+
+        {/* Mola (mais espremida) */}
+        <Path
+          d={springPath()}
+          stroke={yellow}
+          strokeWidth={8 * scale}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+
+        {/* Tampa fixa (com leve tilt do balanço) */}
+        <G x={springTopX} y={springTopY} rotation={capTiltDeg} origin="0,0">
+          <Rect
+            x={-capW * 0.5}
+            y={-capH * 0.5}
+            width={capW}
+            height={capH}
+            rx={capH * 0.5}
+            fill="url(#capGrad)"
+          />
+        </G>
+
+        {/* Estalo do lançamento */}
+        {showPop && (
+          <G x={springTopX} y={springTopY - 8 * scale}>
+            <Polygon
+              points={Array.from({ length: 8 }).map((_, i) => {
+                const a = (i * 45) * Math.PI / 180;
+                const R = (10 + 6 * (i % 2)) * popScale * scale;
+                const x  = Math.cos(a) * R;
+                const y  = Math.sin(a) * R;
+                return `${x},${y}`;
+              }).join(' ')}
+              fill={yellow}
+              opacity={0.75}
+            />
+            <Circle r={3 * popScale * scale} fill="#FFF6C2" />
+          </G>
+        )}
+      </Svg>
+    </View>
+  );
+}
+
+```
+
+src/components/BGMountains.tsx:
+```tsx
+// src/components/BGDesertRidges.tsx
+// ------------------------------------------------------------------------------------
+// "Underwater Coral Reef & Fishes" + marine snow (partículas caindo) no overlay.
+// 100% da tela usada: superfície + 4 camadas de recifes + bolhas + "neve" subaquática.
+// Compatível: { cameraX: number, snowDensity?: number }  •  Parallax sem RAF (só a neve usa RAF).
+// Tiling perfeito: funções periódicas (período = tileW) + tile duplicado com 1px overlap.
+// Marcas // SEAM indicam pontos críticos de emenda.
+// ------------------------------------------------------------------------------------
+
+import React, { JSX, useMemo, useRef, useEffect, useState } from 'react';
+import { View, useWindowDimensions } from 'react-native';
+import Svg, {
+  Defs, LinearGradient, Stop, Rect, Path, G, Circle, Ellipse, Line, Polygon
+} from 'react-native-svg';
+
+// (Opcional) Integração com tema do seu projeto:
+import { theme } from '../styles/theme';
+
+type Props = { cameraX: number; snowDensity?: number };
+
+function BGDesertRidges({ cameraX = 0, snowDensity = 1 }: Props) {
+  // Dimensões congeladas para estabilidade (evita flicker por relayout)
+  const dims = useWindowDimensions();
+  const W = useRef(dims.width).current;
+  const H = useRef(dims.height).current;
+
+  // Tile base = largura visível (período das funções)
+  const tileW = W;
+  const overlap = 1; // 1px de sobreposição para costura invisível
+
+  // ---------- Paleta (pastéis aquáticos; customizável via theme) ----------
+  const waterTop    = (theme as any)?.waterTop    || '#A2E4FF';
+  const waterMid    = (theme as any)?.waterMid    || '#8BD6FF';
+  const waterBot    = (theme as any)?.waterBot    || '#66C1F5';
+  const rayColor    = (theme as any)?.rayColor    || '#FFFFFF';
+  const bubbleColor = (theme as any)?.bubbleColor || '#FFFFFF';
+
+  const reefFar     = (theme as any)?.reefFar     || '#BDE7F2';
+  const reefMid     = (theme as any)?.reefMid     || '#9ADFEF';
+  const reefNear    = (theme as any)?.reefNear    || '#79D1E3';
+  const reefFront   = (theme as any)?.reefFront   || '#59C2D9';
+  const crestHL     = (theme as any)?.crestHL     || '#FFFFFF';
+
+  // ---------- Parallax amarrado à câmera ----------
+  // Mais distante = mais lento; mais perto = mais rápido.
+  const farSpeed   = 1.1;   // recife distante + raios de luz
+  const midSpeed   = 3.0;   // mediano
+  const nearSpeed  = 5.5;   // próximo + bolhas
+  const frontSpeed = 8.6;   // frontal
+
+  // Snap elimina gaps subpixel
+  const snap = (v: number) => Math.floor(v);
+  const farOffset   = snap(-((cameraX * farSpeed)   % tileW));
+  const midOffset   = snap(-((cameraX * midSpeed)   % tileW));
+  const nearOffset  = snap(-((cameraX * nearSpeed)  % tileW));
+  const frontOffset = snap(-((cameraX * frontSpeed) % tileW));
+
+  // ---------- Funções periódicas (seamless em X) ----------
+  const TWO_PI = Math.PI * 2;
+
+  // Curva de "recife/ondulação" suave (tileável)
+  const reefY = (x: number, baseY: number, amp: number, p0: number, p1: number, p2: number) => {
+    const t = (x / tileW) * TWO_PI;
+    const y =
+      Math.sin(t + p0) * 1.00 +
+      Math.sin(2 * t + p1) * 0.36 +
+      Math.cos(3 * t + p2) * 0.20;
+    return baseY + amp * y;
+  };
+
+  // Preenche do contorno para baixo (até o rodapé)
+  const buildFillPathBottom = (
+    baseY: number,
+    amp: number,
+    phases: [number, number, number],
+    steps: number
+  ) => {
+    let d = `M 0 ${H} L 0 ${reefY(0, baseY, amp, phases[0], phases[1], phases[2]).toFixed(2)}`;
+    for (let i = 1; i <= steps; i++) {
+      const x = (i / steps) * tileW;
+      const y = reefY(x, baseY, amp, phases[0], phases[1], phases[2]);
+      d += ` L ${x.toFixed(2)} ${y.toFixed(2)}`;
+    }
+    d += ` L ${tileW} ${H} Z`;
+    return d;
+  };
+
+  // Traçado do cume (highlight suave do recife)
+  const buildCrestPath = (
+    baseY: number,
+    amp: number,
+    phases: [number, number, number],
+    steps: number
+  ) => {
+    let d = `M 0 ${reefY(0, baseY, amp, phases[0], phases[1], phases[2]).toFixed(2)}`;
+    for (let i = 1; i <= steps; i++) {
+      const x = (i / steps) * tileW;
+      const y = reefY(x, baseY, amp, phases[0], phases[1], phases[2]);
+      d += ` L ${x.toFixed(2)} ${y.toFixed(2)}`;
+    }
+    return d;
+  };
+
+  // ---------- Layout vertical (100% da tela: superfície + 4 recifes) ----------
+  const farBaseY   = H * 0.40; // recife distante
+  const midBaseY   = H * 0.56;
+  const nearBaseY  = H * 0.70;
+  const frontBaseY = H * 0.82; // ocupa o rodapé (sem chão vazio)
+
+  const farAmp   = H * 0.10;
+  const midAmp   = H * 0.11;
+  const nearAmp  = H * 0.12;
+  const frontAmp = H * 0.12;
+
+  // Fases determinísticas (sem flicker)
+  const FAR_P:   [number, number, number] = [0.35, 1.65, 2.80];
+  const MID_P:   [number, number, number] = [1.10, 0.30, 2.15];
+  const NEAR_P:  [number, number, number] = [0.65, 2.00, 1.35];
+  const FRONT_P: [number, number, number] = [1.75, 0.90, 1.10];
+
+  // Densidade segura para mid-range
+  const stepsFar = 72, stepsMid = 88, stepsNear = 102, stepsFront = 116;
+
+  // Memoização dos paths (dependem apenas de W/H)
+  const farFill   = useMemo(() => buildFillPathBottom(farBaseY,   farAmp,   FAR_P,   stepsFar),   [tileW, H]);
+  const midFill   = useMemo(() => buildFillPathBottom(midBaseY,   midAmp,   MID_P,   stepsMid),   [tileW, H]);
+  const nearFill  = useMemo(() => buildFillPathBottom(nearBaseY,  nearAmp,  NEAR_P,  stepsNear),  [tileW, H]);
+  const frontFill = useMemo(() => buildFillPathBottom(frontBaseY, frontAmp, FRONT_P, stepsFront), [tileW, H]);
+
+  const midCrest   = useMemo(() => buildCrestPath(midBaseY,   midAmp,   MID_P,   stepsMid),   [tileW, H]);
+  const nearCrest  = useMemo(() => buildCrestPath(nearBaseY,  nearAmp,  NEAR_P,  stepsNear),  [tileW, H]);
+  const frontCrest = useMemo(() => buildCrestPath(frontBaseY, frontAmp, FRONT_P, stepsFront), [tileW, H]);
+
+  // ---------- Utilidades determinísticas ----------
+  const hash01 = (n: number) => {
+    const s = Math.sin(n * 127.1) * 43758.5453;
+    return s - Math.floor(s);
+  };
+
+  type Bubble = { cx: number; cy: number; r: number; o: number };
+  const makeBubbles = (yTop: number, yBottom: number, densityPx: number, seed: number): Bubble[] => {
+    const count = Math.max(8, Math.round(tileW / densityPx));
+    const list: Bubble[] = [];
+    for (let i = 0; i < count; i++) {
+      const cx = ((i + 0.3 + hash01(seed + i) * 0.4) / count) * tileW;
+      const cy = yTop + (yBottom - yTop) * hash01(seed * 19 + i);
+      const r  = 3 + 4 * hash01(seed * 23 + i);
+      const o  = 0.30 + 0.35 * hash01(seed * 29 + i);
+      list.push({ cx, cy, r, o });
+    }
+    return list;
+  };
+
+  const bubblesNear = useMemo(() => makeBubbles(H * 0.42, H * 0.78, 70, 303), [tileW, H]);
+
+  // ===================== MARINE SNOW (as “mesmas neves”) =====================
+  // Só o overlay de partículas usa RAF; resto é 100% determinístico por cameraX.
+  const [time, setTime] = useState(0); // segundos
+  const raf = useRef<number | null>(null);
+  const t0 = useRef<number | null>(null);
+  useEffect(() => {
+    const loop = (now: number) => {
+      if (t0.current == null) t0.current = now;
+      setTime((now - t0.current) / 1000);
+      raf.current = requestAnimationFrame(loop);
+    };
+    raf.current = requestAnimationFrame(loop);
+    return () => {
+      if (raf.current) cancelAnimationFrame(raf.current);
+      t0.current = null;
+    };
+  }, []);
+
+  const SNOW_N = Math.round(42 * Math.max(0.4, Math.min(2, snowDensity)));
+  const snowParticles = useMemo(() => {
+    const arr: { sx: number; sy: number; r: number; w: number; vy: number; a: number }[] = [];
+    for (let i = 0; i < SNOW_N; i++) {
+      const rnd = (n: number) => {
+        const s = Math.sin((i + 1) * 12.9898 + n * 78.233) * 43758.5453;
+        return s - Math.floor(s);
+      };
+      const sx = rnd(1) * W;             // posição base X
+      const sy = -40 - rnd(2) * (H + 80); // começa acima (para fazer “loop” vertical)
+      const r  = 0.9 + rnd(3) * 2.2;     // raio
+      const w  = 10 + rnd(4) * 28;       // “wiggle” horizontal
+      const vy = 12 + rnd(5) * 26;       // queda px/s (lenta)
+      const a  = 0.18 + rnd(6) * 0.30;   // opacidade
+      arr.push({ sx, sy, r, w, vy, a });
+    }
+    return arr;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [W, H, snowDensity]);
+
+  // ===========================================================================
+
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', inset: 0 }}>
+      {/* Superfície da água: gradiente + raios de luz suaves */}
+      <Svg width={W} height={H} style={{ position: 'absolute', left: 0, top: 0 }}>
+        <Defs>
+          <LinearGradient id="seaGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={waterTop} />
+            <Stop offset="0.55" stopColor={waterMid} />
+            <Stop offset="1" stopColor={waterBot} />
+          </LinearGradient>
+          <LinearGradient id="rayGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={rayColor} stopOpacity="0.25" />
+            <Stop offset="1" stopColor={rayColor} stopOpacity="0.00" />
+          </LinearGradient>
+          <LinearGradient id="hazeGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.00" />
+            {/* névoa de profundidade para suavizar HUD/sprites */}
+            <Stop offset="1" stopColor="#FFFFFF" stopOpacity="0.14" />
+          </LinearGradient>
+        </Defs>
+
+        {/* Fundo do mar */}
+        <Rect x={0} y={0} width={W} height={H} fill="url(#seaGrad)" />
+
+        {/* Raios de luz (leve, triangulares, não animados) */}
+        {(() => {
+          const cx = W * 0.35;
+          const top = 0;
+          const base = H * 0.55;
+          const rays = 5;
+          const spread = W * 0.9;
+          const nodes: JSX.Element[] = [];
+          for (let i = 0; i < rays; i++) {
+            const k = (i / (rays - 1)) - 0.5;
+            const x = cx + spread * k * 0.25;
+            const p = `${x - W * 0.08},${top} ${x + W * 0.08},${top} ${x + W * 0.25},${base}`;
+            nodes.push(<Polygon key={`ray-${i}`} points={p} fill="url(#rayGrad)" opacity={0.12} />);
+          }
+          return <G>{nodes}</G>;
+        })()}
+      </Svg>
+
+      {/* ======= LAYER: FAR (recife distante) ======= */}
+      <View style={{ position: 'absolute', left: farOffset, top: 0 }}>
+        <Svg width={tileW * 2 + overlap} height={H}>
+          {/* Tile A */}
+          <G>
+            <Path d={farFill} fill={reefFar} />
+          </G>
+          {/* Tile B (SEAM + 1px overlap) */}
+          <G x={tileW - overlap}>
+            {/* SEAM: tile repetido com 1px overlap */}
+            <Path d={farFill} fill={reefFar} />
+          </G>
+        </Svg>
+      </View>
+
+      {/* ======= LAYER: MID ======= */}
+      <View style={{ position: 'absolute', left: midOffset, top: 0 }}>
+        <Svg width={tileW * 2 + overlap} height={H}>
+          <G>
+            <Path d={midFill} fill={reefMid} />
+            <Path d={midCrest} stroke={crestHL} strokeOpacity={0.12} strokeWidth={2} fill="none" />
+          </G>
+          <G x={tileW - overlap}>
+            {/* SEAM */}
+            <Path d={midFill} fill={reefMid} />
+            <Path d={midCrest} stroke={crestHL} strokeOpacity={0.12} strokeWidth={2} fill="none" />
+          </G>
+        </Svg>
+      </View>
+
+      {/* ======= LAYER: NEAR (recife próximo + bolhas) ======= */}
+      <View style={{ position: 'absolute', left: nearOffset, top: -120 }}>
+        <Svg width={tileW * 2 + overlap} height={H}>
+          <G>
+            {/* Bolhas */}
+            {bubblesNear.map((b, i) => (
+              <Circle key={`bn-a-${i}`} cx={b.cx} cy={b.cy} r={b.r} fill={bubbleColor} opacity={b.o} />
+            ))}
+
+            <Path d={nearFill} fill={reefNear} />
+            <Path d={nearCrest} stroke={crestHL} strokeOpacity={0.16} strokeWidth={2.2} fill="none" />
+          </G>
+          <G x={tileW - overlap}>
+            {/* SEAM */}
+            {bubblesNear.map((b, i) => (
+              <Circle key={`bn-b-${i}`} cx={b.cx} cy={b.cy} r={b.r} fill={bubbleColor} opacity={b.o} />
+            ))}
+
+            <Path d={nearFill} fill={reefNear} />
+            <Path d={nearCrest} stroke={crestHL} strokeOpacity={0.16} strokeWidth={2.2} fill="none" />
+          </G>
+        </Svg>
+      </View>
+
+      {/* ======= LAYER: FRONT (recife frontal + “algas”) ======= */}
+      <View style={{ position: 'absolute', left: frontOffset, top: -170 }}>
+        <Svg width={tileW * 2 + overlap} height={H}>
+          <G>
+            <Path d={frontFill} fill={reefFront} />
+            <Path d={frontCrest} stroke={crestHL} strokeOpacity={0.20} strokeWidth={2.4} fill="none" />
+            {/* Pequenas “algas” estilizadas */}
+            {(() => {
+              const count = Math.max(6, Math.round(tileW / 140));
+              const items: JSX.Element[] = [];
+              for (let i = 0; i < count; i++) {
+                const x = ((i + 0.3) / count) * tileW;
+                const h = H * (0.06 + 0.05 * hash01(500 + i));
+                const bY = frontBaseY + 6 + 10 * hash01(510 + i);
+                const d = `M ${x} ${bY}
+                           C ${x - 8} ${bY - h * 0.4},
+                             ${x + 8} ${bY - h * 0.8},
+                             ${x} ${bY - h}`;
+                items.push(<Path key={`kelp-a-${i}`} d={d} stroke="#FFFFFF" strokeOpacity={0.10} strokeWidth={2} fill="none" />);
+              }
+              return <G>{items}</G>;
+            })()}
+          </G>
+          <G x={tileW - overlap}>
+            {/* SEAM */}
+            <Path d={frontFill} fill={reefFront} />
+            <Path d={frontCrest} stroke={crestHL} strokeOpacity={0.20} strokeWidth={2.4} fill="none" />
+            {(() => {
+              const count = Math.max(6, Math.round(tileW / 140));
+              const items: JSX.Element[] = [];
+              for (let i = 0; i < count; i++) {
+                const x = ((i + 0.3) / count) * tileW;
+                const h = H * (0.06 + 0.05 * hash01(500 + i));
+                const bY = frontBaseY + 6 + 10 * hash01(510 + i);
+                const d = `M ${x} ${bY}
+                           C ${x - 8} ${bY - h * 0.4},
+                             ${x + 8} ${bY - h * 0.8},
+                             ${x} ${bY - h}`;
+                items.push(<Path key={`kelp-b-${i}`} d={d} stroke="#FFFFFF" strokeOpacity={0.10} strokeWidth={2} fill="none" />);
+              }
+              return <G>{items}</G>;
+            })()}
+          </G>
+        </Svg>
+      </View>
+
+      {/* ===================== OVERLAY: “NEVE” SUBAQUÁTICA ===================== */}
+      <Svg width={W} height={H} style={{ position: 'absolute', left: 0, top: 0 }}>
+        <G opacity={0.95} pointerEvents="none">
+          {snowParticles.map((p, i) => {
+            // drift horizontal sinusoidal + queda linear
+            const x = (p.sx + Math.sin(time * 0.6 + i) * p.w + W) % W;
+            const yFalling = p.sy + p.vy * time;
+            // recicla ao ultrapassar a base — reentra por cima
+            const y = ((yFalling + (H + 80)) % (H + 80)) - 40;
+            return <Circle key={`snow-${i}`} cx={x} cy={y} r={p.r} fill="#FFFFFF" opacity={p.a} />;
+          })}
+        </G>
+      </Svg>
+
+      {/* Névoa de profundidade no rodapé (melhora legibilidade de HUD/sprites) */}
+      <Svg width={W} height={H} style={{ position: 'absolute', left: 0, top: 0 }}>
+        <Rect x={0} y={H * 0.64} width={W} height={H * 0.36} fill="url(#hazeGrad)" />
+      </Svg>
+    </View>
+  );
+}
+
+export default React.memo(BGDesertRidges);
+
+// ------------------------------------------------------------------------------------
+// Notas de Tiling & Performance
+// - Periodicidade garantida nas camadas: reefY usa período = tileW -> y(0) == y(tileW).
+// - Costura invisível: duplicação do tile com <G x={tileW - overlap}> e overlap=1.  // SEAM
+// - Parallax sem RAF: offsets dependem só de cameraX; snap() evita gaps subpixel.
+// - “Neve”/marine snow usa RAF leve (só círculos), densidade controlável via snowDensity.
+// - 100% da tela: superfície preenchida por gradiente + recifes que fecham até a base.
+// ------------------------------------------------------------------------------------
+
+```
+
+src/components/FlightDistance.tsx:
+```tsx
+// src/components/FlightDistance.tsx
+import React, { useRef, useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import useGameStore, { GameState } from '../store/useGameStore';
+
+// ALTURA: ajuste aqui para onde quiser (504 = mesma que você usou; 64 = topo)
+const TOP_Y = 504;
+
+// “Balanço” derivado de px (sem timers/Animated)
+const WIGGLE_X = 1.4;
+const WIGGLE_Y = 1.8;
+
+export default function FlightDistance() {
+  const phase = useGameStore((s: GameState) => s.phase);
+  const px    = useGameStore((s: GameState) => s.px);
+
+  // Marca X no instante do disparo
+  const launchXRef = useRef<number | null>(null);
+  const prevPhase  = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (prevPhase.current !== 'flight' && phase === 'flight') {
+      launchXRef.current = px;
+    }
+    if (phase !== 'flight') {
+      launchXRef.current = null;
+    }
+    prevPhase.current = phase;
+  }, [phase, px]);
+
+  if (phase !== 'flight') return null;
+
+  // Distância em tempo real (m)
+  const x0 = launchXRef.current ?? px;
+  const d  = Math.max(0, px - x0);
+  const distance = Number.isFinite(d) ? d : 0;
+
+  // “voando junto” derivado do px (sem riscos de crash)
+  const t = px;
+  const offX = Math.sin(t * 2.0) * WIGGLE_X;
+  const offY = Math.sin(t * 2.8 + 0.6) * WIGGLE_Y;
+
+  return (
+    <View pointerEvents="none" style={[styles.container, { top: TOP_Y }]}>
+   
+         
+          {/* conteúdo */}
+          <View style={styles.row}>
+            {/* label pequeno, opaco */}
+            <Text style={styles.caption}>DISTÂNCIA</Text>
+            <View style={{ height: 4 }} />
+            <View style={styles.numRow}>
+              <Text style={styles.value}>
+                {distance.toFixed(1)}
+              </Text>
+              <Text style={styles.unit}>m</Text>
+            </View>
+          </View>
+        </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    left: 0, right: 0,
+    alignItems: 'center',
+    zIndex: 60,
+    marginLeft: 20,   // desloca ~40px pra direita
+  },
+
+  
+
+ 
+
+ 
+
+  row: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+
+  caption: {
+    fontSize: 10,
+    letterSpacing: 1.6,
+    color: 'rgba(15,23,42,0.55)',
+    fontWeight: '800',
+  },
+
+  numRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+
+  value: {
+    fontSize: 28,
+    lineHeight: 30,
+    fontWeight: '900',
+    color: '#0f172a', // slate-900
+    textShadowColor: 'rgba(96,165,250,0.35)', // brilho azul leve
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
+  },
+
+  unit: {
+    marginLeft: 6,
+    marginBottom: 2,
+    fontSize: 14,
+    fontWeight: '800',
+    color: 'rgba(15,23,42,0.7)',
+  },
+});
+
+```
+
+App.tsx:
+```tsx
+import React from 'react';
+import { SafeAreaView, StatusBar, StyleSheet, Platform } from 'react-native';
+import GameScreen from './src/screens/GameScreen';
+
+export default function App() {
+  return (
+    <SafeAreaView style={styles.root}>
+      <StatusBar barStyle="dark-content" />
+      <GameScreen />
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#dff3ff',
+    // Na web, só escondemos qualquer estouro por segurança
+    ...(Platform.OS === 'web' ? { overflow: 'hidden' as const } : {}),
+  },
+});
+
+```
+
+src/App.tsx (NÃO ENCONTRADO)
+

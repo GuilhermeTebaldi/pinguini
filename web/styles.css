@@ -1,0 +1,13 @@
+/* Travar a página no tamanho da viewport (sem scroll) */
+html, body, #root, #app {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;   /* <- mata o scroll na web */
+    background: #eaf6ff; /* opcional, mesma cor do céu do jogo */
+  }
+  
+  /* Evitar que elementos absolutamente posicionados “estourem” a largura */
+  * { box-sizing: border-box; }
+  

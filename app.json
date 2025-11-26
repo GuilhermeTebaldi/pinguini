@@ -1,29 +1,29 @@
 {
   "expo": {
-    "name": "pinguinboom",
+    "name": "Pinguinboom",
     "slug": "pinguinboom",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+    "platforms": ["ios", "android", "web"],
+    "assetBundlePatterns": ["**/*"],
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png",
+      "css": ["./web/styles.css"]
     },
-    "ios": {
-      "supportsTablet": true
+    "extra": {
+      "eas": {
+        "projectId": "e7afe907-0a45-440d-8753-2996b4ed5d6d"
+      }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true
+      "package": "com.guilhermemagic.pinguinboom"
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "ios": {
+      "bundleIdentifier": "com.guilhermemagic.pinguinboom",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     }
   }
 }

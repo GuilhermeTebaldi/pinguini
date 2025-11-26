@@ -1,20 +1,26 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { SafeAreaView, StatusBar, StyleSheet, Platform } from 'react-native';
+import GameScreen from './src/screens/GameScreen';
+import { configureAudio } from './src/services/audio';
 
 export default function App() {
+  useEffect(() => {
+    configureAudio();
+  }, []);
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <SafeAreaView style={styles.root}>
+      <StatusBar barStyle="dark-content" />
+      <GameScreen />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#dff3ff',
+    // Na web, só escondemos qualquer estouro por segurança
+    ...(Platform.OS === 'web' ? { overflow: 'hidden' as const } : {}),
   },
 });

@@ -1,0 +1,94 @@
+.
+├── .DS_Store
+├── .expo
+│   ├── devices.json
+│   ├── README.md
+│   ├── settings.json
+│   └── web
+│       └── cache
+│           └── production
+│               └── images
+│                   └── favicon
+│                       └── favicon-9c4e7590e8d8e3f288d12320685d859a7265cf2c34d46b7d1c9270130452453a-contain-transparent
+│                           └── favicon-48.png
+├── .gitignore
+├── .vscode
+│   └── .react
+├── app.json
+├── App.tsx
+├── assets
+│   ├── .DS_Store
+│   ├── adaptive-icon.png
+│   ├── deitado.png
+│   ├── favicon.png
+│   ├── ice_tije.png
+│   ├── ice_tile.png
+│   ├── ice_tiles.png
+│   ├── icon.png
+│   ├── splash-icon.png
+│   └── voando.png
+├── dist
+│   ├── _expo
+│   │   └── static
+│   │       └── js
+│   │           └── android
+│   │               └── index-884f6f1c450c97b064d989738e9adace.hbc
+│   ├── assets
+│   │   ├── 140c53a7643ea949007aa9a282153849
+│   │   ├── 1681f34aaca71b8dfb70756bca331eb2
+│   │   ├── 1f77739ca9ff2188b539c36f30ffa2be
+│   │   ├── 31b5ffea3daddc69dd01a1f3d6cf63c5
+│   │   ├── 370dd5af19f8364907b6e2c41f45dbbf
+│   │   ├── 3a2ba31570920eeb9b1d217cabe58315
+│   │   ├── 3b89dd103490708d19a95adcae52210e
+│   │   ├── 4e85bc9ebe07e0340c9c4fc2f6c38908
+│   │   ├── 56c8d80832e37783f12c05db7c8849e2
+│   │   ├── 605ed7926cf39a2ad5ec2d1f9d391d3d
+│   │   ├── 6148e7019854f3bde85b633cb88f3c25
+│   │   ├── a76d309774d33d9856f650bed4292a23
+│   │   ├── adec7d6f310bc577f05e8fe06a5daccf
+│   │   ├── b06871f281fee6b241d60582ae9369b9
+│   │   ├── b49ae8ab2dbccb02c4d11caaacf09eab
+│   │   ├── b62641afc9ab487008e996a5c5865e56
+│   │   ├── d2285965fe34b05465047401b8595dd0
+│   │   ├── e20945d7c929279ef7a6f1db184a4470
+│   │   └── f7c53c47a66934504fcbc7cc164895a7
+│   └── metadata.json
+├── dump_projeto.txt
+├── eas.json
+├── estrutura_pastas.txt
+├── index.ts
+├── package-lock.json
+├── package.json
+├── src
+│   ├── .DS_Store
+│   ├── components
+│   │   ├── AngleSlider.tsx
+│   │   ├── ArrowIndicator.tsx
+│   │   ├── BGMountains.tsx
+│   │   ├── Cannon.tsx
+│   │   ├── FlightDistance.tsx
+│   │   ├── HeadInSnow.tsx
+│   │   ├── HUD.tsx
+│   │   ├── IceGround.tsx
+│   │   ├── ImpactSnow.tsx
+│   │   ├── Penguin.tsx
+│   │   └── PowerBar.tsx
+│   ├── game
+│   │   └── physics.ts
+│   ├── screens
+│   │   ├── canhao .jpeg
+│   │   └── GameScreen.tsx
+│   ├── services
+│   │   └── scores.ts
+│   ├── store
+│   │   └── useGameStore.ts
+│   ├── styles
+│   │   └── theme.ts
+│   └── types
+│       └── types
+├── tsconfig.json
+└── web
+    └── styles.css
+
+26 directories, 66 files
