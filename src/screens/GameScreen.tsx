@@ -72,6 +72,32 @@ export default function GameScreen() {
   }, []);
 
   useEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return undefined;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        void stopAmbientSound();
+      } else {
+        void startAmbientSound();
+      }
+    };
+
+    const handlePageHide = () => {
+      void stopAmbientSound();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('beforeunload', handlePageHide);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('beforeunload', handlePageHide);
+    };
+  }, []);
+
+  useEffect(() => {
     const prevPhase = prevPhaseRef.current;
     if (phase === 'flight' && prevPhase !== 'flight') {
       const variant = power01 >= 0.75 ? 'strong' : power01 >= 0.4 ? 'nice' : 'bad';
