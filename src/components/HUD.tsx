@@ -10,7 +10,7 @@ import useGameStore, {
   BOOST_BLUE_DURATION_MS,
 } from '../store/useGameStore';
 import { Ionicons } from '@expo/vector-icons';
-import { playFishSuccess, playFishFail, playBombCountdown, playBombExplosion } from '../services/audio';
+import { playFishSuccess, playFishFail, playBlackFishArrival, playBombCountdown, playBombExplosion } from '../services/audio';
 
 const FISH_SPRITE = require('../../assets/fish-icon.png');
 const FISH_TIMEOUT_MS = 1100;
@@ -21,6 +21,8 @@ const FISH_SIZE = 48;
 const BOMB_SIZE = 60;
 const SLIDE_PY_THRESHOLD = 0.08;
 const SLIDE_VY_THRESHOLD = 0.16;
+const BLACK_FISH_DURATION_MS = 1500;
+const BLACK_FISH_INTERVAL = 7;
 
 export default function HUD() {
   const reset     = useGameStore((s: GameState) => s.reset);
@@ -35,6 +37,7 @@ export default function HUD() {
   const triggerBombImpulse = useGameStore((s: GameState) => s.triggerBombImpulse);
   const py        = useGameStore((s: GameState) => s.py);
   const vy        = useGameStore((s: GameState) => s.vy ?? 0);
+  const finishRun  = useGameStore((s: GameState) => s.finishRun);
 
   const boostWindowStart = useGameStore((s: GameState) => s.boostWindowStart);
   const boostUsed = useGameStore((s: GameState) => s.boostUsed);
@@ -51,22 +54,37 @@ export default function HUD() {
   const [fishPosition, setFishPosition] = useState({ x: 0, y: 0 });
   const [fishSessionActive, setFishSessionActive] = useState(false);
   const fishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [blackFishVisible, setBlackFishVisible] = useState(false);
+  const [blackFishActive, setBlackFishActive] = useState(false);
+  const [blackFishPosition, setBlackFishPosition] = useState({ x: 0, y: 0 });
+  const blackFishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const blackFishThresholdRef = useRef(BLACK_FISH_INTERVAL);
+  const [blackScreenVisible, setBlackScreenVisible] = useState(false);
+  const blackScreenAnim = useRef(new Animated.Value(0)).current;
   const clearFishTimer = useCallback(() => {
     if (fishTimerRef.current) {
       clearTimeout(fishTimerRef.current);
       fishTimerRef.current = null;
     }
   }, []);
+  const clearBlackFishTimer = useCallback(() => {
+    if (blackFishTimerRef.current) {
+      clearTimeout(blackFishTimerRef.current);
+      blackFishTimerRef.current = null;
+    }
+  }, []);
   const failFish = useCallback(() => {
     if (fishFailed) return;
     clearFishTimer();
+    clearBlackFishTimer();
+    setBlackScreenVisible(false);
     setFishSessionActive(false);
     setFishActive(false);
     setFishFailed(true);
     setFishStatus('fail');
     setFishVisible(true);
     void playFishFail();
-  }, [fishFailed, clearFishTimer]);
+  }, [fishFailed, clearFishTimer, clearBlackFishTimer]);
   const spawnFish = useCallback(() => {
     if (fishFailed) return;
     const offsetX = (Math.random() - 0.5) * 2 * FISH_OFFSET_X;
@@ -78,6 +96,18 @@ export default function HUD() {
     clearFishTimer();
     fishTimerRef.current = setTimeout(() => failFish(), FISH_TIMEOUT_MS);
   }, [fishFailed, clearFishTimer, failFish]);
+  const flashBlackScreen = useCallback(() => {
+    setBlackScreenVisible(true);
+    blackScreenAnim.setValue(1);
+    Animated.timing(blackScreenAnim, {
+      toValue: 0,
+      duration: 400,
+      useNativeDriver: true,
+    }).start(() => {
+      setBlackScreenVisible(false);
+    });
+  }, [blackScreenAnim]);
+
   const handleFishPress = () => {
     if (!fishActive || fishFailed) return;
     clearFishTimer();
@@ -91,6 +121,21 @@ export default function HUD() {
         spawnFish();
       }
     }, FISH_RESPAWN_MS);
+  };
+  const handleBlackFishPress = () => {
+    if (!blackFishActive) return;
+    clearBlackFishTimer();
+    clearFishTimer();
+    setFishActive(false);
+    setFishVisible(false);
+    setFishFailed(true);
+    setFishStatus('fail');
+    setFishSessionActive(false);
+    setBlackFishActive(false);
+    setBlackFishVisible(false);
+    flashBlackScreen();
+    void playBlackFishArrival();
+    finishRun();
   };
   const handleBombPress = () => {
     if (bombPhase !== 'ready') return;
@@ -146,6 +191,38 @@ export default function HUD() {
     py <= SLIDE_PY_THRESHOLD &&
     Math.abs(vy) <= SLIDE_VY_THRESHOLD;
 
+  const showBlackFish = useCallback(() => {
+    if (blackFishVisible || fishFailed || !slidingGround || bombPhase === 'ready') return;
+    clearFishTimer();
+    clearBlackFishTimer();
+    setFishVisible(false);
+    setFishActive(false);
+    setFishStatus('idle');
+    const offsetX = (Math.random() - 0.5) * 2 * FISH_OFFSET_X;
+    const offsetY = (Math.random() - 0.5) * 2 * FISH_OFFSET_Y;
+    setBlackFishPosition({ x: offsetX, y: offsetY });
+    setBlackFishVisible(true);
+    setBlackFishActive(true);
+    blackFishTimerRef.current = setTimeout(() => {
+      setBlackFishVisible(false);
+      setBlackFishActive(false);
+      blackFishTimerRef.current = null;
+      if (slidingGround && !fishFailed) {
+        setFishStatus('idle');
+        spawnFish();
+      }
+    }, BLACK_FISH_DURATION_MS);
+    blackFishThresholdRef.current += BLACK_FISH_INTERVAL;
+  }, [
+    blackFishVisible,
+    fishFailed,
+    slidingGround,
+    bombPhase,
+    clearFishTimer,
+    clearBlackFishTimer,
+    spawnFish,
+  ]);
+
   useEffect(() => {
     if (slidingGround) {
       if (!fishSessionActive && !fishFailed) {
@@ -163,7 +240,42 @@ export default function HUD() {
     }
   }, [slidingGround, fishSessionActive, fishFailed, spawnFish, clearFishTimer]);
 
+  useEffect(() => {
+    if (
+      slidingGround &&
+      fishSessionActive &&
+      !blackFishVisible &&
+      !fishFailed &&
+      fishBoostCount >= blackFishThresholdRef.current
+    ) {
+      showBlackFish();
+    }
+  }, [
+    slidingGround,
+    fishSessionActive,
+    blackFishVisible,
+    fishFailed,
+    fishBoostCount,
+    showBlackFish,
+  ]);
+
+  useEffect(() => {
+    if (!slidingGround) {
+      clearBlackFishTimer();
+      setBlackFishVisible(false);
+      setBlackFishActive(false);
+      setBlackScreenVisible(false);
+      blackFishThresholdRef.current = BLACK_FISH_INTERVAL;
+    }
+  }, [slidingGround, clearBlackFishTimer]);
+
   useEffect(() => () => clearFishTimer(), [clearFishTimer]);
+  useEffect(() => () => clearBlackFishTimer(), [clearBlackFishTimer]);
+  useEffect(() => {
+    if (phase !== 'landed' || running) {
+      setBlackScreenVisible(false);
+    }
+  }, [phase, running]);
 
   useEffect(() => {
     if (!slidingGround) {
@@ -192,6 +304,14 @@ export default function HUD() {
       setFishActive(false);
     }
   }, [bombPhase, clearFishTimer]);
+
+  useEffect(() => {
+    if (bombPhase === 'ready') {
+      clearBlackFishTimer();
+      setBlackFishVisible(false);
+      setBlackFishActive(false);
+    }
+  }, [bombPhase, clearBlackFishTimer]);
 
   useEffect(() => () => clearBombTimer(), [clearBombTimer]);
 
@@ -223,6 +343,10 @@ export default function HUD() {
         ? [{ scale: 0.96 }]
         : []),
   ];
+  const blackFishTransform = [
+    { translateX: blackFishPosition.x },
+    { translateY: blackFishPosition.y },
+  ];
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const shakeStyle = {
     transform: [
@@ -252,6 +376,11 @@ export default function HUD() {
 
   return (
     <Animated.View style={[styles.hud, shakeStyle]} pointerEvents="box-none">
+      {blackScreenVisible && (
+        <Animated.View pointerEvents="none" style={[styles.blackScreen, { opacity: blackScreenAnim }]}>
+          <Text style={styles.blackScreenText}>Não foi legal clicar no peixe preto!</Text>
+        </Animated.View>
+      )}
       {/* Título */}
       <View style={styles.topRow}>
         <Text style={styles.title}>PINGUINI</Text>
@@ -379,6 +508,29 @@ export default function HUD() {
               {fishFailed && <View style={styles.fishFailBadge} />}
             </Pressable>
             {!fishFailed && <Text style={styles.fishHint}>Clique rápido!</Text>}
+          </View>
+        </View>
+      )}
+
+      {blackFishVisible && (
+        <View pointerEvents="box-none" style={styles.fishLayer}>
+          <View
+            pointerEvents="box-none"
+            style={[styles.fishHolder, { transform: blackFishTransform }]}
+          >
+            <Pressable
+              pointerEvents={blackFishActive ? 'auto' : 'none'}
+              onPress={handleBlackFishPress}
+              style={({ pressed }) => [
+                styles.fishButton,
+                styles.blackFishButton,
+                pressed && styles.blackFishPressed,
+              ]}
+            >
+              <Image source={FISH_SPRITE} style={[styles.fishImage, styles.blackFishImage]} />
+              <Text style={styles.blackFishLabel}>Peixe Preto</Text>
+            </Pressable>
+            <Text style={styles.blackFishHint}>Não clique!</Text>
           </View>
         </View>
       )}
@@ -634,10 +786,24 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 10,
   },
+  blackFishButton: {
+    borderColor: '#fef3c7',
+    backgroundColor: '#030712',
+    shadowColor: '#000',
+    shadowOpacity: 0.65,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
   fishImage: {
     width: FISH_SIZE * 0.8,
     height: FISH_SIZE * 0.8,
     resizeMode: 'contain',
+  },
+  blackFishImage: {
+    width: FISH_SIZE * 0.7,
+    height: FISH_SIZE * 0.7,
+    resizeMode: 'contain',
+    tintColor: '#f8fafc',
   },
   fishHint: {
     marginTop: 6,
@@ -645,6 +811,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 0.6,
     textShadowColor: 'rgba(15,23,42,0.8)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
+  },
+  blackFishLabel: {
+    marginTop: 2,
+    color: '#fde68a',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  blackFishHint: {
+    marginTop: 6,
+    color: '#fecdd3',
+    fontSize: 12,
+    letterSpacing: 0.6,
+    textShadowColor: 'rgba(0,0,0,0.9)',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 4,
   },
@@ -659,6 +841,9 @@ const styles = StyleSheet.create({
   fishPressed: {
     opacity: 0.8,
   },
+  blackFishPressed: {
+    opacity: 0.75,
+  },
   fishFailBadge: {
     position: 'absolute',
     width: 12,
@@ -667,6 +852,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#f87171',
     top: 4,
     right: 4,
+  },
+  blackScreen: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: '#030712',
+    zIndex: 999,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  blackScreenText: {
+    color: '#fef3c7',
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+    letterSpacing: 1.2,
   },
   bombLayer: {
     position: 'absolute',

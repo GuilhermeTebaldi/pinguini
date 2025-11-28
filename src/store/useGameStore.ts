@@ -42,7 +42,7 @@ const FISH_BASE_BOOST = 0.32;
 const FISH_INCREMENT = 0.15; // impulso do peixe aumenta em incrementos pequenos
 const FISH_MAX_BOOST = 0.62;
 const BOMB_IMPULSE = 5.6; // impulso da bomba
-const BOMB_VELOCITY_BUMP = 20.0;
+const BOMB_VELOCITY_BUMP = 20.0; // deslize
 const BOMB_FIRST_THRESHOLD = 5; // inicio para aparecer uma bomba
 const BOMB_INTERVAL = 10;
 const SLIDE_PY_THRESHOLD = 0.08;
@@ -109,6 +109,8 @@ export type GameState = {
   snapCamera: (x?: number) => void;
   tickCamera: (dt: number) => void;
   followPenguin: (penguinX: number, screenMeters: number, marginMeters: number) => void;
+
+  finishRun: () => void;
 
   setCrashed: (payload: { x?: number; wx?: number; distance: number; power?: number }) => void;
   clearImpact: () => void;
@@ -489,6 +491,20 @@ const useGameStore = create<GameState>((set, get) => ({
         boostLastIntensity: 0,
       };
     }),
+
+  finishRun: () =>
+    set(() => ({
+      running: false,
+      hasLanded: true,
+      phase: 'landed',
+      vx: 0,
+      vy: 0,
+      boostWindowStart: 0,
+      boostUsed: true,
+      boostBlastKey: null,
+      boostLastIntensity: 0,
+      impact: null,
+    })),
 
   clearImpact: () => set({ impact: null }),
 }));
