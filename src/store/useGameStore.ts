@@ -38,6 +38,9 @@ export const BOOST_BLUE_START_MS = 900;
 export const BOOST_BLUE_DURATION_MS = 1000;
 export const BOOST_WINDOW_MS = BOOST_BLUE_START_MS + BOOST_BLUE_DURATION_MS;
 const BOOST_MULTIPLIER_MAX = 1.95;
+const FISH_BASE_BOOST = 0.32;
+const FISH_INCREMENT = 0.04;
+const FISH_MAX_BOOST = 0.62;
 
 export type ImpactData = {
   key: number | string;
@@ -74,6 +77,7 @@ export type GameState = {
   boostUsed: boolean;
   boostBlastKey: number | null;
   boostLastIntensity: number;
+  fishBoostCount: number;
   menuOpen: boolean;
   gameStarted: boolean;
   hasStartedBefore: boolean;
@@ -89,6 +93,7 @@ export type GameState = {
   reset: () => void;
   launch: () => void;
   pressMain: () => void;
+  applyFishImpulse: () => void;
   step: (dt: number, pixelsPerMeter: number) => void;
   setCameraTarget: (x: number) => void;
   setZoomTarget: (z: number) => void;
@@ -126,6 +131,7 @@ const useGameStore = create<GameState>((set, get) => ({
   boostUsed: false,
   boostBlastKey: null,
   boostLastIntensity: 0,
+  fishBoostCount: 0,
   menuOpen: true,
   gameStarted: false,
   hasStartedBefore: false,
@@ -168,6 +174,7 @@ const useGameStore = create<GameState>((set, get) => ({
       boostUsed: false,
       boostBlastKey: null,
       boostLastIntensity: 0,
+      fishBoostCount: 0,
       menuOpen: state.hasStartedBefore ? false : state.menuOpen,
       gameStarted: false,
       hasStartedBefore: state.hasStartedBefore,
@@ -200,6 +207,7 @@ const useGameStore = create<GameState>((set, get) => ({
       boostUsed: false,
       boostBlastKey: null,
       boostLastIntensity: 0,
+      fishBoostCount: 0,
     });
   },
 
@@ -229,6 +237,7 @@ const useGameStore = create<GameState>((set, get) => ({
           boostUsed: false,
           boostBlastKey: null,
           boostLastIntensity: 0,
+          fishBoostCount: 0,
         };
       }
 
@@ -258,6 +267,29 @@ const useGameStore = create<GameState>((set, get) => ({
       }
 
       return {};
+    });
+  },
+
+  applyFishImpulse: () => {
+    set((state) => {
+      const slidingGround =
+        state.phase === 'flight' &&
+        state.running &&
+        state.py <= 0.02 &&
+        Math.abs(state.vy ?? 0) <= 0.08;
+      if (!slidingGround) return {};
+      const nextCount = state.fishBoostCount + 1;
+      const bonus = Math.min(nextCount * FISH_INCREMENT, FISH_MAX_BOOST - FISH_BASE_BOOST);
+      const boost = Math.min(FISH_MAX_BOOST, FISH_BASE_BOOST + bonus);
+      const nextPx = state.px + boost;
+      const nextDistance = Math.max(state.distance, nextPx);
+      return {
+        px: nextPx,
+        distance: nextDistance,
+        cameraTargetX: state.cameraTargetX + boost,
+        cameraX: state.cameraX + boost,
+        fishBoostCount: nextCount,
+      };
     });
   },
 

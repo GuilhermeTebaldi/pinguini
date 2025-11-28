@@ -1,6 +1,6 @@
 // src/components/HUD.tsx
-import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Pressable, Image } from 'react-native';
 import PowerBar from './PowerBar';
 import AngleSlider from './AngleSlider';
 import useGameStore, {
@@ -10,6 +10,14 @@ import useGameStore, {
   BOOST_BLUE_DURATION_MS,
 } from '../store/useGameStore';
 import { Ionicons } from '@expo/vector-icons';
+import { playFishSuccess, playFishFail } from '../services/audio';
+
+const FISH_SPRITE = require('../../assets/fish-icon.png');
+const FISH_TIMEOUT_MS = 1100;
+const FISH_RESPAWN_MS = 260;
+const FISH_OFFSET_X = 120;
+const FISH_OFFSET_Y = 55;
+const FISH_SIZE = 48;
 
 export default function HUD() {
   const reset     = useGameStore((s: GameState) => s.reset);
@@ -18,6 +26,10 @@ export default function HUD() {
   const running   = useGameStore((s: GameState) => s.running);
   const phase     = useGameStore((s: GameState) => s.phase);
   const pressMain = useGameStore((s: GameState) => s.pressMain);
+  const applyFishImpulse = useGameStore((s: GameState) => s.applyFishImpulse);
+  const fishBoostCount = useGameStore((s: GameState) => s.fishBoostCount);
+  const py        = useGameStore((s: GameState) => s.py);
+  const vy        = useGameStore((s: GameState) => s.vy ?? 0);
 
   const boostWindowStart = useGameStore((s: GameState) => s.boostWindowStart);
   const boostUsed = useGameStore((s: GameState) => s.boostUsed);
@@ -28,7 +40,54 @@ export default function HUD() {
   const powerVal  = useGameStore((s: GameState) => s.power01 ?? 0);
   const [tick, setTick] = useState(Date.now());
   const [blastVisible, setBlastVisible] = useState(false);
-
+  const [fishVisible, setFishVisible] = useState(false);
+  const [fishActive, setFishActive] = useState(false);
+  const [fishFailed, setFishFailed] = useState(false);
+  const [fishStatus, setFishStatus] = useState<'idle' | 'success' | 'fail'>('idle');
+  const [fishPosition, setFishPosition] = useState({ x: 0, y: 0 });
+  const [fishSessionActive, setFishSessionActive] = useState(false);
+  const fishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearFishTimer = useCallback(() => {
+    if (fishTimerRef.current) {
+      clearTimeout(fishTimerRef.current);
+      fishTimerRef.current = null;
+    }
+  }, []);
+  const failFish = useCallback(() => {
+    if (fishFailed) return;
+    clearFishTimer();
+    setFishSessionActive(false);
+    setFishActive(false);
+    setFishFailed(true);
+    setFishStatus('fail');
+    setFishVisible(true);
+    void playFishFail();
+  }, [fishFailed, clearFishTimer]);
+  const spawnFish = useCallback(() => {
+    if (fishFailed) return;
+    const offsetX = (Math.random() - 0.5) * 2 * FISH_OFFSET_X;
+    const offsetY = (Math.random() - 0.5) * 2 * FISH_OFFSET_Y;
+    setFishPosition({ x: offsetX, y: offsetY });
+    setFishStatus('idle');
+    setFishVisible(true);
+    setFishActive(true);
+    clearFishTimer();
+    fishTimerRef.current = setTimeout(() => failFish(), FISH_TIMEOUT_MS);
+  }, [fishFailed, clearFishTimer, failFish]);
+  const handleFishPress = () => {
+    if (!fishActive || fishFailed) return;
+    clearFishTimer();
+    setFishActive(false);
+    setFishStatus('success');
+    setFishVisible(false);
+    void playFishSuccess();
+    applyFishImpulse();
+    fishTimerRef.current = setTimeout(() => {
+      if (!fishFailed) {
+        spawnFish();
+      }
+    }, FISH_RESPAWN_MS);
+  };
   useEffect(() => {
     let frame: number | null = null;
     const loop = () => {
@@ -50,6 +109,28 @@ export default function HUD() {
     return () => clearTimeout(id);
   }, [boostBlastKey]);
 
+  const slidingGround =
+    phase === 'flight' && running && py <= 0.02 && Math.abs(vy) <= 0.08;
+
+  useEffect(() => {
+    if (slidingGround) {
+      if (!fishSessionActive && !fishFailed) {
+        setFishSessionActive(true);
+        setFishFailed(false);
+        spawnFish();
+      }
+    } else {
+      clearFishTimer();
+      setFishSessionActive(false);
+      setFishVisible(false);
+      setFishActive(false);
+      setFishFailed(false);
+      setFishStatus('idle');
+    }
+  }, [slidingGround, fishSessionActive, fishFailed, spawnFish, clearFishTimer]);
+
+  useEffect(() => () => clearFishTimer(), [clearFishTimer]);
+
   const boostWindowActive = phase === 'flight' && !boostUsed && boostWindowStart > 0;
   const elapsedMs = boostWindowActive
     ? Math.min(BOOST_WINDOW_MS, Math.max(0, tick - boostWindowStart))
@@ -61,11 +142,23 @@ export default function HUD() {
   const blueIntensity = blueReady
     ? Math.max(0, 1 - (elapsedMs - BOOST_BLUE_START_MS) / BOOST_BLUE_DURATION_MS)
     : 0;
+  const smokeOpacity = blueReady ? 0.32 + blueIntensity * 0.5 : 0;
+  const smokeScale = blueReady ? 0.95 + blueIntensity * 1.2 : 0.8;
+  const sparkScale = blueReady ? 1 + blueIntensity * 0.7 : 0.8;
   const haloScale = blueReady ? 1 + blueIntensity * 0.22 : 0.9 + yellowProgress * 0.2;
   const haloOpacity = blueReady ? 0.25 + blueIntensity * 0.6 : 0.2 + yellowProgress * 0.55;
   const haloColor = blueReady ? '#2563eb' : '#fbbf24';
   const blastScale = 0.8 + boostLastIntensity * 0.9;
   const blastOpacity = 0.35 + boostLastIntensity * 0.55;
+  const fishTransform = [
+    { translateX: fishPosition.x },
+    { translateY: fishPosition.y },
+    ...(fishStatus === 'success'
+      ? [{ scale: 1.05 }]
+      : fishStatus === 'fail'
+        ? [{ scale: 0.96 }]
+        : []),
+  ];
 
   return (
     <View style={styles.hud} pointerEvents="box-none">
@@ -106,6 +199,30 @@ export default function HUD() {
                 },
               ]}
             />
+          )}
+          {blueReady && (
+            <>
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.boostSmokeCloud,
+                  {
+                    opacity: smokeOpacity,
+                    transform: [{ scale: smokeScale }],
+                  },
+                ]}
+              />
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.boostSmokeTrail,
+                  {
+                    opacity: smokeOpacity * 0.7,
+                    transform: [{ scale: sparkScale }],
+                  },
+                ]}
+              />
+            </>
           )}
           {blastVisible && (
             <View
@@ -152,16 +269,41 @@ export default function HUD() {
         </TouchableOpacity>
       </View>
 
+      {fishVisible && (
+        <View pointerEvents="box-none" style={styles.fishLayer}>
+          <View
+            pointerEvents="box-none"
+            style={[styles.fishHolder, { transform: fishTransform }]}
+          >
+            <Pressable
+              pointerEvents={fishActive ? 'auto' : 'none'}
+              onPress={handleFishPress}
+              style={({ pressed }) => [
+                styles.fishButton,
+                fishStatus === 'success' && styles.fishSuccess,
+                fishFailed && styles.fishFailed,
+                pressed && styles.fishPressed,
+              ]}
+            >
+              <Image source={FISH_SPRITE} style={styles.fishImage} />
+              {fishFailed && <View style={styles.fishFailBadge} />}
+            </Pressable>
+            {!fishFailed && <Text style={styles.fishHint}>Clique rápido!</Text>}
+          </View>
+        </View>
+      )}
+
       {/* Resultado */}
       {hasLanded && !running && (
         <View style={styles.resultTop}>
           <View style={styles.row}>
-            <Text style={styles.caption}>DISTÂNCIA</Text>
-            <View style={{ height: 4 }} />
-            <View style={styles.numRow}>
-              <Text style={styles.value}>{(distance ?? 0).toFixed(1)}</Text>
-              <Text style={styles.unit}>m</Text>
-            </View>
+          <Text style={styles.caption}>DISTÂNCIA</Text>
+          <View style={{ height: 4 }} />
+          <View style={styles.numRow}>
+            <Text style={styles.value}>{(distance ?? 0).toFixed(1)}</Text>
+            <Text style={styles.unit}>m</Text>
+          </View>
+          <Text style={styles.fishResult}>Peixinhos: {fishBoostCount}</Text>
           </View>
         </View>
       )}
@@ -274,6 +416,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: 'rgba(15,23,42,0.7)',
   },
+  fishResult: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+    letterSpacing: 0.6,
+  },
 
   /* DIREITA */
   sideButtons: { position: 'absolute', right: 16, top: 140, alignItems: 'flex-end', gap: 14 },
@@ -303,6 +455,99 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#fde68a',
     zIndex: 1,
+  },
+  boostSmokeCloud: {
+    position: 'absolute',
+    top: -28,
+    bottom: -28,
+    left: -28,
+    right: -28,
+    borderRadius: 999,
+    borderWidth: 1.25,
+    borderColor: 'rgba(59,130,246,0.45)',
+    backgroundColor: 'rgba(37,99,235,0.24)',
+    shadowColor: '#1d4ed8',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    zIndex: 0,
+  },
+  boostSmokeTrail: {
+    position: 'absolute',
+    bottom: -32,
+    right: -8,
+    width: 46,
+    height: 22,
+    borderRadius: 16,
+    backgroundColor: 'rgba(37,99,235,0.25)',
+    borderWidth: 0.85,
+    borderColor: 'rgba(59,130,246,0.5)',
+    zIndex: 0,
+  },
+  fishLayer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 140,
+    pointerEvents: 'none',
+  },
+  fishHolder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'box-none',
+  },
+  fishButton: {
+    width: FISH_SIZE,
+    height: FISH_SIZE,
+    borderRadius: FISH_SIZE / 2,
+    borderWidth: 2,
+    borderColor: '#60a5fa',
+    backgroundColor: 'rgba(37,99,235,0.22)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#2563eb',
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 10,
+  },
+  fishImage: {
+    width: FISH_SIZE * 0.8,
+    height: FISH_SIZE * 0.8,
+    resizeMode: 'contain',
+  },
+  fishHint: {
+    marginTop: 6,
+    color: '#f8fafc',
+    fontSize: 11,
+    letterSpacing: 0.6,
+    textShadowColor: 'rgba(15,23,42,0.8)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
+  },
+  fishSuccess: {
+    borderColor: '#34d399',
+    backgroundColor: 'rgba(16,185,129,0.2)',
+  },
+  fishFailed: {
+    borderColor: '#f87171',
+    backgroundColor: 'rgba(248,113,113,0.28)',
+  },
+  fishPressed: {
+    opacity: 0.8,
+  },
+  fishFailBadge: {
+    position: 'absolute',
+    width: 12,
+    height: 3,
+    borderRadius: 6,
+    backgroundColor: '#f87171',
+    top: 4,
+    right: 4,
   },
   boostBlast: {
     position: 'absolute',
