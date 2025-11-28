@@ -10,7 +10,7 @@ import useGameStore, {
   BOOST_BLUE_DURATION_MS,
 } from '../store/useGameStore';
 import { Ionicons } from '@expo/vector-icons';
-import { playFishSuccess, playFishFail } from '../services/audio';
+import { playFishSuccess, playFishFail, playBombCountdown, playBombExplosion } from '../services/audio';
 
 const FISH_SPRITE = require('../../assets/fish-icon.png');
 const FISH_TIMEOUT_MS = 1100;
@@ -18,6 +18,9 @@ const FISH_RESPAWN_MS = 260;
 const FISH_OFFSET_X = 120;
 const FISH_OFFSET_Y = 55;
 const FISH_SIZE = 48;
+const BOMB_SIZE = 60;
+const SLIDE_PY_THRESHOLD = 0.08;
+const SLIDE_VY_THRESHOLD = 0.16;
 
 export default function HUD() {
   const reset     = useGameStore((s: GameState) => s.reset);
@@ -28,6 +31,8 @@ export default function HUD() {
   const pressMain = useGameStore((s: GameState) => s.pressMain);
   const applyFishImpulse = useGameStore((s: GameState) => s.applyFishImpulse);
   const fishBoostCount = useGameStore((s: GameState) => s.fishBoostCount);
+  const bombReady = useGameStore((s: GameState) => s.bombReady);
+  const triggerBombImpulse = useGameStore((s: GameState) => s.triggerBombImpulse);
   const py        = useGameStore((s: GameState) => s.py);
   const vy        = useGameStore((s: GameState) => s.vy ?? 0);
 
@@ -37,7 +42,6 @@ export default function HUD() {
   const boostLastIntensity = useGameStore((s: GameState) => s.boostLastIntensity);
 
   const angleDeg  = useGameStore((s: GameState) => s.angleDeg ?? 0);
-  const powerVal  = useGameStore((s: GameState) => s.power01 ?? 0);
   const [tick, setTick] = useState(Date.now());
   const [blastVisible, setBlastVisible] = useState(false);
   const [fishVisible, setFishVisible] = useState(false);
@@ -88,6 +92,29 @@ export default function HUD() {
       }
     }, FISH_RESPAWN_MS);
   };
+  const handleBombPress = () => {
+    if (bombPhase !== 'ready') return;
+    setBombPhase('countdown');
+    clearBombTimer();
+    void playBombCountdown();
+    bombTimerRef.current = setTimeout(() => {
+      setBombPhase('explode');
+      void playBombExplosion();
+      triggerBombImpulse();
+      bombTimerRef.current = setTimeout(() => {
+        setBombPhase('idle');
+        bombTimerRef.current = null;
+      }, 700);
+    }, 420);
+  };
+  const [bombPhase, setBombPhase] = useState<'idle' | 'ready' | 'countdown' | 'explode'>('idle');
+  const bombTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearBombTimer = useCallback(() => {
+    if (bombTimerRef.current) {
+      clearTimeout(bombTimerRef.current);
+      bombTimerRef.current = null;
+    }
+  }, []);
   useEffect(() => {
     let frame: number | null = null;
     const loop = () => {
@@ -110,7 +137,10 @@ export default function HUD() {
   }, [boostBlastKey]);
 
   const slidingGround =
-    phase === 'flight' && running && py <= 0.02 && Math.abs(vy) <= 0.08;
+    phase === 'flight' &&
+    running &&
+    py <= SLIDE_PY_THRESHOLD &&
+    Math.abs(vy) <= SLIDE_VY_THRESHOLD;
 
   useEffect(() => {
     if (slidingGround) {
@@ -130,6 +160,21 @@ export default function HUD() {
   }, [slidingGround, fishSessionActive, fishFailed, spawnFish, clearFishTimer]);
 
   useEffect(() => () => clearFishTimer(), [clearFishTimer]);
+
+  useEffect(() => {
+    if (!slidingGround) {
+      if (bombPhase !== 'idle') {
+        setBombPhase('idle');
+      }
+      clearBombTimer();
+      return;
+    }
+    if (bombReady && bombPhase === 'idle') {
+      setBombPhase('ready');
+    }
+  }, [slidingGround, bombReady, bombPhase, clearBombTimer]);
+
+  useEffect(() => () => clearBombTimer(), [clearBombTimer]);
 
   const boostWindowActive = phase === 'flight' && !boostUsed && boostWindowStart > 0;
   const elapsedMs = boostWindowActive
@@ -290,6 +335,35 @@ export default function HUD() {
             </Pressable>
             {!fishFailed && <Text style={styles.fishHint}>Clique rápido!</Text>}
           </View>
+        </View>
+      )}
+
+      {bombPhase !== 'idle' && (
+        <View pointerEvents="box-none" style={styles.bombLayer}>
+          {bombPhase === 'explode' && (
+            <>
+              <View style={styles.bombExplosionGlow} />
+              <View style={styles.bombExplosionSmoke} />
+            </>
+          )}
+          <Pressable
+            pointerEvents={bombPhase === 'ready' ? 'auto' : 'none'}
+            onPress={handleBombPress}
+            style={({ pressed }) => [
+              styles.bombButton,
+              bombPhase === 'ready' && styles.bombReady,
+              pressed && styles.bombPressed,
+            ]}
+          >
+            <View style={styles.bombCore}>
+              <View style={styles.bombFuse} />
+              <View style={styles.bombSpark} />
+            </View>
+            {bombPhase === 'explode' && <View style={styles.bombFlame} />}
+          </Pressable>
+          {bombPhase === 'countdown' && (
+            <Text style={styles.bombCountdownText}>3...</Text>
+          )}
         </View>
       )}
 
@@ -548,6 +622,100 @@ const styles = StyleSheet.create({
     backgroundColor: '#f87171',
     top: 4,
     right: 4,
+  },
+  bombLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 180,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 190,
+    pointerEvents: 'box-none',
+  },
+  bombButton: {
+    width: BOMB_SIZE,
+    height: BOMB_SIZE,
+    borderRadius: BOMB_SIZE / 2,
+    borderWidth: 3,
+    borderColor: '#fb923c',
+    backgroundColor: '#b91c1c',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#f97316',
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 14,
+  },
+  bombReady: {
+    backgroundColor: '#dc2626',
+  },
+  bombPressed: {
+    opacity: 0.85,
+  },
+  bombCore: {
+    width: BOMB_SIZE * 0.6,
+    height: BOMB_SIZE * 0.6,
+    borderRadius: (BOMB_SIZE * 0.6) / 2,
+    backgroundColor: '#0f172a',
+    borderWidth: 2,
+    borderColor: '#fcd34d',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  bombFuse: {
+    position: 'absolute',
+    top: -10,
+    width: 4,
+    height: 14,
+    borderRadius: 2,
+    backgroundColor: '#fde68a',
+  },
+  bombSpark: {
+    position: 'absolute',
+    top: -18,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#ef4444',
+    opacity: 0.9,
+  },
+  bombFlame: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(249,115,22,0.75)',
+    bottom: -18,
+    opacity: 0.9,
+  },
+  bombExplosionGlow: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(248,113,113,0.35)',
+    zIndex: -2,
+  },
+  bombExplosionSmoke: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(15,23,42,0.55)',
+    opacity: 0.8,
+    zIndex: -1,
+  },
+  bombCountdownText: {
+    marginTop: 8,
+    color: '#fde68a',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   boostBlast: {
     position: 'absolute',

@@ -10,6 +10,8 @@ const soundSources = {
   arrival: require('../../assets/sounds/somchegada.mp3'),
   fishSuccess: require('../../assets/sounds/sompaixe.mp3'),
   fishFail: require('../../assets/sounds/fish_fail.wav'),
+  bombExplosion: require('../../assets/sounds/bomba_explosao.mp3'),
+  bombCountdown: require('../../assets/sounds/bomba_contagem.mp3'),
 } as const;
 
 type SoundKey = keyof typeof soundSources;
@@ -181,4 +183,12 @@ export async function playFishSuccess() {
 
 export async function playFishFail() {
   await playEffectByKey('fishFail');
+}
+
+export async function playBombExplosion() {
+  await playEffectByKey('bombExplosion');
+}
+
+export async function playBombCountdown() {
+  await playEffectByKey('bombCountdown');
 }

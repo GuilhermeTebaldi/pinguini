@@ -41,6 +41,12 @@ const BOOST_MULTIPLIER_MAX = 1.95;
 const FISH_BASE_BOOST = 0.32;
 const FISH_INCREMENT = 0.04;
 const FISH_MAX_BOOST = 0.62;
+const BOMB_IMPULSE = 1.8;
+const BOMB_VELOCITY_BUMP = 0.9;
+const BOMB_FIRST_THRESHOLD = 25;
+const BOMB_INTERVAL = 10;
+const SLIDE_PY_THRESHOLD = 0.08;
+const SLIDE_VY_THRESHOLD = 0.16;
 
 export type ImpactData = {
   key: number | string;
@@ -82,6 +88,8 @@ export type GameState = {
   gameStarted: boolean;
   hasStartedBefore: boolean;
   ranking: number[];
+  bombReady: boolean;
+  bombNextThreshold: number;
 
   setAngle: (a: number) => void;
   setPower01: (p: number) => void;
@@ -94,6 +102,7 @@ export type GameState = {
   launch: () => void;
   pressMain: () => void;
   applyFishImpulse: () => void;
+  triggerBombImpulse: () => void;
   step: (dt: number, pixelsPerMeter: number) => void;
   setCameraTarget: (x: number) => void;
   setZoomTarget: (z: number) => void;
@@ -104,6 +113,12 @@ export type GameState = {
   setCrashed: (payload: { x?: number; wx?: number; distance: number; power?: number }) => void;
   clearImpact: () => void;
 };
+
+const isSlidingGroundState = (state: GameState) =>
+  state.phase === 'flight' &&
+  state.running &&
+  state.py <= SLIDE_PY_THRESHOLD &&
+  Math.abs(state.vy ?? 0) <= SLIDE_VY_THRESHOLD;
 
 const DEG2RAD = (d: number) => (d * Math.PI) / 180;
 
@@ -132,6 +147,8 @@ const useGameStore = create<GameState>((set, get) => ({
   boostBlastKey: null,
   boostLastIntensity: 0,
   fishBoostCount: 0,
+  bombReady: false,
+  bombNextThreshold: BOMB_FIRST_THRESHOLD,
   menuOpen: true,
   gameStarted: false,
   hasStartedBefore: false,
@@ -175,6 +192,8 @@ const useGameStore = create<GameState>((set, get) => ({
       boostBlastKey: null,
       boostLastIntensity: 0,
       fishBoostCount: 0,
+      bombReady: false,
+      bombNextThreshold: BOMB_FIRST_THRESHOLD,
       menuOpen: state.hasStartedBefore ? false : state.menuOpen,
       gameStarted: false,
       hasStartedBefore: state.hasStartedBefore,
@@ -208,6 +227,8 @@ const useGameStore = create<GameState>((set, get) => ({
       boostBlastKey: null,
       boostLastIntensity: 0,
       fishBoostCount: 0,
+      bombReady: false,
+      bombNextThreshold: BOMB_FIRST_THRESHOLD,
     });
   },
 
@@ -238,6 +259,8 @@ const useGameStore = create<GameState>((set, get) => ({
           boostBlastKey: null,
           boostLastIntensity: 0,
           fishBoostCount: 0,
+          bombReady: false,
+          bombNextThreshold: BOMB_FIRST_THRESHOLD,
         };
       }
 
@@ -272,23 +295,38 @@ const useGameStore = create<GameState>((set, get) => ({
 
   applyFishImpulse: () => {
     set((state) => {
-      const slidingGround =
-        state.phase === 'flight' &&
-        state.running &&
-        state.py <= 0.02 &&
-        Math.abs(state.vy ?? 0) <= 0.08;
-      if (!slidingGround) return {};
+      if (!isSlidingGroundState(state)) return {};
       const nextCount = state.fishBoostCount + 1;
       const bonus = Math.min(nextCount * FISH_INCREMENT, FISH_MAX_BOOST - FISH_BASE_BOOST);
       const boost = Math.min(FISH_MAX_BOOST, FISH_BASE_BOOST + bonus);
       const nextPx = state.px + boost;
       const nextDistance = Math.max(state.distance, nextPx);
+      const ready = state.bombReady || nextCount >= state.bombNextThreshold;
       return {
         px: nextPx,
         distance: nextDistance,
         cameraTargetX: state.cameraTargetX + boost,
         cameraX: state.cameraX + boost,
         fishBoostCount: nextCount,
+        bombReady: ready,
+      };
+    });
+  },
+
+  triggerBombImpulse: () => {
+    set((state) => {
+      if (!state.bombReady) return {};
+      if (!isSlidingGroundState(state)) return {};
+      const nextPx = state.px + BOMB_IMPULSE;
+      const nextDistance = Math.max(state.distance, nextPx);
+      return {
+        px: nextPx,
+        vx: state.vx + BOMB_VELOCITY_BUMP,
+        distance: nextDistance,
+        cameraTargetX: state.cameraTargetX + BOMB_IMPULSE,
+        cameraX: state.cameraX + BOMB_IMPULSE,
+        bombReady: false,
+        bombNextThreshold: state.bombNextThreshold + BOMB_INTERVAL,
       };
     });
   },
