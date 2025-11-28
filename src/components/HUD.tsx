@@ -103,6 +103,10 @@ export default function HUD() {
       triggerBombImpulse();
       bombTimerRef.current = setTimeout(() => {
         setBombPhase('idle');
+        setFishFailed(false);
+        setFishStatus('idle');
+        setFishSessionActive(true);
+        spawnFish();
         bombTimerRef.current = null;
       }, 700);
     }, 420);
@@ -173,6 +177,21 @@ export default function HUD() {
       setBombPhase('ready');
     }
   }, [slidingGround, bombReady, bombPhase, clearBombTimer]);
+
+  useEffect(() => {
+    if (bombPhase === 'ready') {
+      setFishVisible(false);
+    }
+  }, [bombPhase]);
+
+  useEffect(() => {
+    if (bombPhase === 'ready') {
+      clearFishTimer();
+      setFishFailed(false);
+      setFishStatus('idle');
+      setFishActive(false);
+    }
+  }, [bombPhase, clearFishTimer]);
 
   useEffect(() => () => clearBombTimer(), [clearBombTimer]);
 

@@ -39,11 +39,11 @@ export const BOOST_BLUE_DURATION_MS = 1000;
 export const BOOST_WINDOW_MS = BOOST_BLUE_START_MS + BOOST_BLUE_DURATION_MS;
 const BOOST_MULTIPLIER_MAX = 1.95;
 const FISH_BASE_BOOST = 0.32;
-const FISH_INCREMENT = 0.04;
+const FISH_INCREMENT = 0.04; // impulso do peixe aumenta em incrementos pequenos
 const FISH_MAX_BOOST = 0.62;
-const BOMB_IMPULSE = 3.6;
+const BOMB_IMPULSE = 4.6; // impulso da bomba
 const BOMB_VELOCITY_BUMP = 2.4;
-const BOMB_FIRST_THRESHOLD = 20;
+const BOMB_FIRST_THRESHOLD = 5; // inicio para aparecer uma bomba
 const BOMB_INTERVAL = 10;
 const SLIDE_PY_THRESHOLD = 0.08;
 const SLIDE_VY_THRESHOLD = 0.16;
@@ -303,6 +303,7 @@ const useGameStore = create<GameState>((set, get) => ({
       const nextDistance = Math.max(state.distance, nextPx);
       const ready = state.bombReady || nextCount >= state.bombNextThreshold;
       return {
+        // impulso do peixe
         px: nextPx,
         distance: nextDistance,
         cameraTargetX: state.cameraTargetX + boost,
@@ -324,6 +325,7 @@ const useGameStore = create<GameState>((set, get) => ({
         Math.max(1.5, state.vx * 1.25)
       );
       return {
+        // impulso da bomba
         px: nextPx,
         vx: boostedVx,
         vy: 0,
