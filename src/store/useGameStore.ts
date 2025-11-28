@@ -41,8 +41,8 @@ const BOOST_MULTIPLIER_MAX = 1.95;
 const FISH_BASE_BOOST = 0.32;
 const FISH_INCREMENT = 0.04;
 const FISH_MAX_BOOST = 0.62;
-const BOMB_IMPULSE = 2.4;
-const BOMB_VELOCITY_BUMP = 1.4;
+const BOMB_IMPULSE = 3.6;
+const BOMB_VELOCITY_BUMP = 2.4;
 const BOMB_FIRST_THRESHOLD = 20;
 const BOMB_INTERVAL = 10;
 const SLIDE_PY_THRESHOLD = 0.08;
@@ -319,9 +319,14 @@ const useGameStore = create<GameState>((set, get) => ({
       if (!isSlidingGroundState(state)) return {};
       const nextPx = state.px + BOMB_IMPULSE;
       const nextDistance = Math.max(state.distance, nextPx);
+      const boostedVx = Math.max(
+        state.vx + BOMB_VELOCITY_BUMP,
+        Math.max(1.5, state.vx * 1.25)
+      );
       return {
         px: nextPx,
-        vx: state.vx + BOMB_VELOCITY_BUMP,
+        vx: boostedVx,
+        vy: 0,
         distance: nextDistance,
         cameraTargetX: state.cameraTargetX + BOMB_IMPULSE,
         cameraX: state.cameraX + BOMB_IMPULSE,
