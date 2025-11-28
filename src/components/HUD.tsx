@@ -1,6 +1,6 @@
 // src/components/HUD.tsx
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Pressable, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Pressable, Image, Animated, Vibration } from 'react-native';
 import PowerBar from './PowerBar';
 import AngleSlider from './AngleSlider';
 import useGameStore, {
@@ -204,9 +204,35 @@ export default function HUD() {
         ? [{ scale: 0.96 }]
         : []),
   ];
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const shakeStyle = {
+    transform: [
+      {
+        translateX: shakeAnim.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [0, 6, -4],
+        }),
+      },
+      {
+        translateY: shakeAnim.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [0, -3, 5],
+        }),
+      },
+    ],
+  };
+
+  useEffect(() => {
+    if (bombPhase !== 'explode') return;
+    Vibration.vibrate(260);
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 1, duration: 160, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => shakeAnim.setValue(0));
+  }, [bombPhase, shakeAnim]);
 
   return (
-    <View style={styles.hud} pointerEvents="box-none">
+    <Animated.View style={[styles.hud, shakeStyle]} pointerEvents="box-none">
       {/* Título */}
       <View style={styles.topRow}>
         <Text style={styles.title}>PINGUINI</Text>
@@ -381,7 +407,7 @@ export default function HUD() {
           </View>
         </View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
