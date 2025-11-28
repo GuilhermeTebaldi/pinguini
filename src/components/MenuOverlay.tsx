@@ -42,7 +42,7 @@ export default function MenuOverlay() {
 
         {/* título principal */}
         <Text style={styles.title}>PINGUINI</Text>
-        <Text style={styles.subtitle}>Lança, voa, quica e desliza!</Text>
+        <Text style={styles.subtitle}>Lança, voa e desliza!</Text>
 
         {/* faixa colorida simples */}
         <View style={styles.ribbon}>
