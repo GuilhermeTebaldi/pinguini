@@ -10,19 +10,23 @@ import useGameStore, {
   BOOST_BLUE_DURATION_MS,
 } from '../store/useGameStore';
 import { Ionicons } from '@expo/vector-icons';
-import { playFishSuccess, playFishFail, playBlackFishArrival, playBombCountdown, playBombExplosion } from '../services/audio';
+import { playFishSuccess, playFishFail, playBlackFishArrival, playBombCountdown, playBombExplosion, playNumbersDown } from '../services/audio';
 
 const FISH_SPRITE = require('../../assets/fish-icon.png');
+const BLACK_FISH_SPRITE = require('../../assets/tubarao.png');
 const FISH_TIMEOUT_MS = 1100;
 const FISH_RESPAWN_MS = 260;
 const FISH_OFFSET_X = 120;
 const FISH_OFFSET_Y = 55;
 const FISH_SIZE = 48;
+const BLACK_FISH_SIZE = 70;
 const BOMB_SIZE = 60;
 const SLIDE_PY_THRESHOLD = 0.08;
 const SLIDE_VY_THRESHOLD = 0.16;
 const BLACK_FISH_DURATION_MS = 1500;
 const BLACK_FISH_INTERVAL = 7;
+const DISTANCE_DRAIN_DURATION_MS = 900;
+const DISTANCE_DRAIN_STEP_MS = 40;
 
 export default function HUD() {
   const reset     = useGameStore((s: GameState) => s.reset);
@@ -38,6 +42,7 @@ export default function HUD() {
   const py        = useGameStore((s: GameState) => s.py);
   const vy        = useGameStore((s: GameState) => s.vy ?? 0);
   const finishRun  = useGameStore((s: GameState) => s.finishRun);
+  const suppressNextArrivalSound = useGameStore((s: GameState) => s.suppressNextArrivalSound);
 
   const boostWindowStart = useGameStore((s: GameState) => s.boostWindowStart);
   const boostUsed = useGameStore((s: GameState) => s.boostUsed);
@@ -61,6 +66,14 @@ export default function HUD() {
   const blackFishThresholdRef = useRef(BLACK_FISH_INTERVAL);
   const [blackScreenVisible, setBlackScreenVisible] = useState(false);
   const blackScreenAnim = useRef(new Animated.Value(0)).current;
+  const [drainDistance, setDrainDistance] = useState<number | null>(null);
+  const drainIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const drainShakeAnim = useRef(new Animated.Value(0)).current;
+  const drainShakeLoop = useRef<Animated.CompositeAnimation | null>(null);
+  const [iceStoneVisible, setIceStoneVisible] = useState(false);
+  const iceStoneAnim = useRef(new Animated.Value(0)).current;
+  const iceStoneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const drainingRef = useRef(false);
   const clearFishTimer = useCallback(() => {
     if (fishTimerRef.current) {
       clearTimeout(fishTimerRef.current);
@@ -108,6 +121,76 @@ export default function HUD() {
     });
   }, [blackScreenAnim]);
 
+  const clearIceStone = useCallback(() => {
+    if (iceStoneTimeoutRef.current) {
+      clearTimeout(iceStoneTimeoutRef.current);
+      iceStoneTimeoutRef.current = null;
+    }
+    iceStoneAnim.setValue(0);
+    setIceStoneVisible(false);
+  }, [iceStoneAnim]);
+
+  const showIceStone = useCallback(() => {
+    clearIceStone();
+    setIceStoneVisible(true);
+    Animated.timing(iceStoneAnim, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+    iceStoneTimeoutRef.current = setTimeout(() => {
+      Animated.timing(iceStoneAnim, {
+        toValue: 0,
+        duration: 260,
+        useNativeDriver: true,
+      }).start(() => setIceStoneVisible(false));
+      iceStoneTimeoutRef.current = null;
+    }, 850);
+  }, [clearIceStone, iceStoneAnim]);
+
+  const clearDistanceDrain = useCallback(() => {
+    if (drainIntervalRef.current) {
+      clearInterval(drainIntervalRef.current);
+      drainIntervalRef.current = null;
+    }
+    if (drainShakeLoop.current) {
+      drainShakeLoop.current.stop();
+      drainShakeLoop.current = null;
+    }
+    drainShakeAnim.setValue(0);
+    setDrainDistance(null);
+    drainingRef.current = false;
+  }, [drainShakeAnim]);
+
+  const startDistanceDrain = useCallback(
+    (startValue: number) => {
+      if (!Number.isFinite(startValue) || startValue <= 0) return;
+      clearDistanceDrain();
+      drainingRef.current = true;
+      setDrainDistance(startValue);
+      void playNumbersDown();
+      const steps = Math.max(6, Math.ceil(DISTANCE_DRAIN_DURATION_MS / DISTANCE_DRAIN_STEP_MS));
+      const decrement = startValue / steps;
+      let current = startValue;
+      drainShakeLoop.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(drainShakeAnim, { toValue: 1, duration: 60, useNativeDriver: true }),
+          Animated.timing(drainShakeAnim, { toValue: -1, duration: 60, useNativeDriver: true }),
+        ])
+      );
+      drainShakeLoop.current.start();
+      drainIntervalRef.current = setInterval(() => {
+        current = Math.max(0, current - decrement);
+        setDrainDistance(current);
+        if (current <= 0.01) {
+          showIceStone();
+          clearDistanceDrain();
+        }
+      }, DISTANCE_DRAIN_STEP_MS);
+    },
+    [clearDistanceDrain, drainShakeAnim, showIceStone]
+  );
+
   const handleFishPress = () => {
     if (!fishActive || fishFailed) return;
     clearFishTimer();
@@ -135,6 +218,8 @@ export default function HUD() {
     setBlackFishVisible(false);
     flashBlackScreen();
     void playBlackFishArrival();
+    startDistanceDrain(distance ?? 0);
+    suppressNextArrivalSound();
     finishRun();
   };
   const handleBombPress = () => {
@@ -266,14 +351,21 @@ export default function HUD() {
       setBlackFishActive(false);
       setBlackScreenVisible(false);
       blackFishThresholdRef.current = BLACK_FISH_INTERVAL;
+      if (!drainingRef.current) {
+        clearDistanceDrain();
+      }
+      clearIceStone();
     }
-  }, [slidingGround, clearBlackFishTimer]);
+  }, [slidingGround, clearBlackFishTimer, clearDistanceDrain, clearIceStone]);
 
   useEffect(() => () => clearFishTimer(), [clearFishTimer]);
   useEffect(() => () => clearBlackFishTimer(), [clearBlackFishTimer]);
+  useEffect(() => () => clearDistanceDrain(), [clearDistanceDrain]);
+  useEffect(() => () => clearIceStone(), [clearIceStone]);
   useEffect(() => {
     if (phase !== 'landed' || running) {
       setBlackScreenVisible(false);
+      clearIceStone();
     }
   }, [phase, running]);
 
@@ -364,6 +456,17 @@ export default function HUD() {
       },
     ],
   };
+  const distanceToShow = Number.isFinite(drainDistance ?? distance ?? 0)
+    ? Math.max(0, drainDistance ?? distance ?? 0)
+    : 0;
+  const distanceShakeTranslate = drainShakeAnim.interpolate({
+    inputRange: [-1, 1],
+    outputRange: [-4, 4],
+  });
+  const iceStoneScale = iceStoneAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.8, 1],
+  });
 
   useEffect(() => {
     if (bombPhase !== 'explode') return;
@@ -527,7 +630,7 @@ export default function HUD() {
                 pressed && styles.blackFishPressed,
               ]}
             >
-              <Image source={FISH_SPRITE} style={[styles.fishImage, styles.blackFishImage]} />
+              <Image source={BLACK_FISH_SPRITE} style={[styles.fishImage, styles.blackFishImage]} />
               <Text style={styles.blackFishLabel}>Peixe Preto</Text>
             </Pressable>
             <Text style={styles.blackFishHint}>Não clique!</Text>
@@ -571,8 +674,24 @@ export default function HUD() {
           <Text style={styles.caption}>DISTÂNCIA</Text>
           <View style={{ height: 4 }} />
           <View style={styles.numRow}>
-            <Text style={styles.value}>{(distance ?? 0).toFixed(1)}</Text>
+            <Animated.View style={[{ transform: [{ translateX: distanceShakeTranslate }] }]}>
+              <Text style={styles.value}>{distanceToShow.toFixed(1)}</Text>
+            </Animated.View>
             <Text style={styles.unit}>m</Text>
+            {iceStoneVisible && (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.iceStone,
+                  {
+                    opacity: iceStoneAnim,
+                    transform: [{ scale: iceStoneScale }],
+                  },
+                ]}
+              >
+                <View style={styles.iceStoneShard} />
+              </Animated.View>
+            )}
           </View>
           <Text style={styles.fishResult}>Peixinhos: {fishBoostCount}</Text>
           </View>
@@ -787,12 +906,17 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   blackFishButton: {
-    borderColor: '#fef3c7',
-    backgroundColor: '#030712',
+    width: BLACK_FISH_SIZE,
+    height: BLACK_FISH_SIZE,
+    borderRadius: BLACK_FISH_SIZE / 2,
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
     shadowColor: '#000',
-    shadowOpacity: 0.65,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
   fishImage: {
     width: FISH_SIZE * 0.8,
@@ -800,10 +924,9 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
   },
   blackFishImage: {
-    width: FISH_SIZE * 0.7,
-    height: FISH_SIZE * 0.7,
+    width: BLACK_FISH_SIZE * 0.95,
+    height: BLACK_FISH_SIZE * 0.95,
     resizeMode: 'contain',
-    tintColor: '#f8fafc',
   },
   fishHint: {
     marginTop: 6,
@@ -813,6 +936,28 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(15,23,42,0.8)',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 4,
+  },
+  iceStone: {
+    marginLeft: 6,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#e0f2fe',
+    backgroundColor: '#bae6fd',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#38bdf8',
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  iceStoneShard: {
+    width: 14,
+    height: 14,
+    borderRadius: 6,
+    backgroundColor: '#fff',
+    opacity: 0.75,
   },
   blackFishLabel: {
     marginTop: 2,

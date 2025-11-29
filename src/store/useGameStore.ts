@@ -110,6 +110,10 @@ export type GameState = {
   tickCamera: (dt: number) => void;
   followPenguin: (penguinX: number, screenMeters: number, marginMeters: number) => void;
 
+  suppressArrivalSound: boolean;
+  suppressNextArrivalSound: () => void;
+  clearArrivalSuppression: () => void;
+
   finishRun: () => void;
 
   setCrashed: (payload: { x?: number; wx?: number; distance: number; power?: number }) => void;
@@ -151,6 +155,7 @@ const useGameStore = create<GameState>((set, get) => ({
   fishBoostCount: 0,
   bombReady: false,
   bombNextThreshold: BOMB_FIRST_THRESHOLD,
+  suppressArrivalSound: false,
   menuOpen: true,
   gameStarted: false,
   hasStartedBefore: false,
@@ -196,6 +201,7 @@ const useGameStore = create<GameState>((set, get) => ({
       fishBoostCount: 0,
       bombReady: false,
       bombNextThreshold: BOMB_FIRST_THRESHOLD,
+      suppressArrivalSound: false,
       menuOpen: state.hasStartedBefore ? false : state.menuOpen,
       gameStarted: false,
       hasStartedBefore: state.hasStartedBefore,
@@ -231,6 +237,7 @@ const useGameStore = create<GameState>((set, get) => ({
       fishBoostCount: 0,
       bombReady: false,
       bombNextThreshold: BOMB_FIRST_THRESHOLD,
+      suppressArrivalSound: false,
     });
   },
 
@@ -263,6 +270,7 @@ const useGameStore = create<GameState>((set, get) => ({
           fishBoostCount: 0,
           bombReady: false,
           bombNextThreshold: BOMB_FIRST_THRESHOLD,
+          suppressArrivalSound: false,
         };
       }
 
@@ -492,11 +500,15 @@ const useGameStore = create<GameState>((set, get) => ({
       };
     }),
 
+  suppressNextArrivalSound: () => set({ suppressArrivalSound: true }),
+  clearArrivalSuppression: () => set({ suppressArrivalSound: false }),
+
   finishRun: () =>
     set(() => ({
       running: false,
       hasLanded: true,
       phase: 'landed',
+      distance: 0,
       vx: 0,
       vy: 0,
       boostWindowStart: 0,

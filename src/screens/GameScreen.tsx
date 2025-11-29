@@ -48,6 +48,8 @@ export default function GameScreen() {
   const impact          = useGameStore((s) => s.impact);
   const clearImpact     = useGameStore((s) => s.clearImpact);
   const power01         = useGameStore((s) => s.power01 ?? 0);
+  const suppressArrivalSound = useGameStore((s) => s.suppressArrivalSound);
+  const clearArrivalSuppression = useGameStore((s) => s.clearArrivalSuppression);
   const prevPhaseRef    = useRef<GamePhase>(phase);
 
   const setCameraTarget = useGameStore((s) => s.setCameraTarget);
@@ -107,10 +109,14 @@ export default function GameScreen() {
       (phase === 'landed' && prevPhase !== 'landed') ||
       (phase === 'crashed' && prevPhase !== 'crashed')
     ) {
-      void playArrivalSound();
+      if (suppressArrivalSound) {
+        clearArrivalSuppression();
+      } else {
+        void playArrivalSound();
+      }
     }
     prevPhaseRef.current = phase;
-  }, [phase, power01]);
+  }, [phase, power01, suppressArrivalSound, clearArrivalSuppression]);
 
   // Loop do jogo (física)
   useEffect(() => {

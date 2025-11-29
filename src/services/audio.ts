@@ -9,6 +9,7 @@ const soundSources = {
   ambient2: require('../../assets/sounds/ambiente2.mp3'),
   arrival: require('../../assets/sounds/somchegada.mp3'),
   arrivalBlackFish: require('../../assets/sounds/somchegada2.mp3'),
+  numbersDown: require('../../assets/sounds/numbers_down.mp3'),
   fishSuccess: require('../../assets/sounds/sompaixe.mp3'),
   fishFail: require('../../assets/sounds/fish_fail.wav'),
   bombExplosion: require('../../assets/sounds/bomba_explosao.mp3'),
@@ -180,6 +181,10 @@ export async function playArrivalSound() {
 
 export async function playBlackFishArrival() {
   await playEffectByKey('arrivalBlackFish');
+}
+
+export async function playNumbersDown() {
+  await playEffectByKey('numbersDown');
 }
 
 export async function playFishSuccess() {
