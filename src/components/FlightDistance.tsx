@@ -6,6 +6,7 @@ import useGameStore, { GameState } from '../store/useGameStore';
 export default function FlightDistance() {
   const phase = useGameStore((s: GameState) => s.phase);
   const px    = useGameStore((s: GameState) => s.px);
+  const paused = useGameStore((s: GameState) => s.paused);
 
   // Marca X no instante do disparo
   const launchXRef = useRef<number | null>(null);
@@ -21,7 +22,7 @@ export default function FlightDistance() {
     prevPhase.current = phase;
   }, [phase, px]);
 
-  if (phase !== 'flight') return null;
+  if (phase !== 'flight' || paused) return null;
 
   // Distância em tempo real (m)
   const x0 = launchXRef.current ?? px;

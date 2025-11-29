@@ -43,6 +43,7 @@ export default function GameScreen() {
   const vx              = useGameStore((s) => s.vx);
   const vy              = useGameStore((s) => s.vy);
   const phase           = useGameStore((s) => s.phase);
+  const paused          = useGameStore((s) => s.paused);
   const cameraX         = useGameStore((s) => s.cameraX);
   const cameraZoom      = useGameStore((s) => s.cameraZoom);
   const impact          = useGameStore((s) => s.impact);
@@ -266,7 +267,7 @@ export default function GameScreen() {
 
       <FlightDistance />
       <HUD />
-      <MenuToggle />
+      {!paused && <MenuToggle />}
       <MenuOverlay />
     </View>
   );

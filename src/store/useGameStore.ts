@@ -91,6 +91,7 @@ export type GameState = {
   ranking: number[];
   bombReady: boolean;
   bombNextThreshold: number;
+  paused: boolean;
 
   setAngle: (a: number) => void;
   setPower01: (p: number) => void;
@@ -116,6 +117,8 @@ export type GameState = {
   clearArrivalSuppression: () => void;
 
   finishRun: () => void;
+  pauseGame: () => void;
+  resumeGame: () => void;
 
   setCrashed: (payload: { x?: number; wx?: number; distance: number; power?: number; flightDistance?: number }) => void;
   clearImpact: () => void;
@@ -162,6 +165,7 @@ const useGameStore = create<GameState>((set, get) => ({
   gameStarted: false,
   hasStartedBefore: false,
   ranking: initialRanking,
+  paused: false,
 
   setAngle: (a) => set({ angleDeg: Math.max(10, Math.min(80, a)) }),
   setPower01: (p) => set({ power01: Math.max(0, Math.min(1, p)) }),
@@ -209,6 +213,7 @@ const useGameStore = create<GameState>((set, get) => ({
       gameStarted: false,
       hasStartedBefore: state.hasStartedBefore,
       ranking: state.ranking,
+      paused: false,
     })),
 
   launch: () => {
@@ -241,6 +246,7 @@ const useGameStore = create<GameState>((set, get) => ({
       bombReady: false,
       bombNextThreshold: BOMB_FIRST_THRESHOLD,
       suppressArrivalSound: false,
+      paused: false,
     });
   },
 
@@ -274,6 +280,7 @@ const useGameStore = create<GameState>((set, get) => ({
           bombReady: false,
           bombNextThreshold: BOMB_FIRST_THRESHOLD,
           suppressArrivalSound: false,
+          paused: false,
         };
       }
 
@@ -523,6 +530,25 @@ const useGameStore = create<GameState>((set, get) => ({
         boostUsed: true,
         boostBlastKey: null,
         boostLastIntensity: 0,
+        paused: false,
+      };
+    }),
+
+  pauseGame: () =>
+    set((state) => {
+      if (!state.running || state.paused) return {};
+      return {
+        running: false,
+        paused: true,
+      };
+    }),
+
+  resumeGame: () =>
+    set((state) => {
+      if (!state.paused) return {};
+      return {
+        running: true,
+        paused: false,
       };
     }),
 
@@ -543,6 +569,7 @@ const useGameStore = create<GameState>((set, get) => ({
       boostBlastKey: null,
       boostLastIntensity: 0,
       impact: null,
+      paused: false,
     })),
 
   clearImpact: () => set({ impact: null }),

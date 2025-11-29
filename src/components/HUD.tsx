@@ -4,6 +4,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Pressable, Image, Animated, V
 import PowerBar from './PowerBar';
 import AngleSlider from './AngleSlider';
 import DistanceBadge from './DistanceBadge';
+import PauseOverlay from './PauseOverlay';
 import useGameStore, {
   GameState,
   BOOST_WINDOW_MS,
@@ -26,7 +27,7 @@ const BLACK_FISH_SIZE = 70;
 const BOMB_SIZE = 60;
 const SLIDE_PY_THRESHOLD = 0.08;
 const SLIDE_VY_THRESHOLD = 0.16;
-const BLACK_FISH_DURATION_MS = 900; // tempo que o peixe preto fica até trocar pro outro peixe
+const BLACK_FISH_DURATION_MS = 500; // tempo que o peixe preto fica até trocar pro outro peixe
 const BLACK_FISH_INTERVAL = 7;
 const DISTANCE_DRAIN_DURATION_MS = 900;
 const DISTANCE_DRAIN_STEP_MS = 40;
@@ -47,6 +48,9 @@ export default function HUD() {
   const vy        = useGameStore((s: GameState) => s.vy ?? 0);
   const finishRun  = useGameStore((s: GameState) => s.finishRun);
   const suppressNextArrivalSound = useGameStore((s: GameState) => s.suppressNextArrivalSound);
+  const paused = useGameStore((s: GameState) => s.paused);
+  const pauseGame = useGameStore((s: GameState) => s.pauseGame);
+  const resumeGame = useGameStore((s: GameState) => s.resumeGame);
 
   const boostWindowStart = useGameStore((s: GameState) => s.boostWindowStart);
   const boostUsed = useGameStore((s: GameState) => s.boostUsed);
@@ -253,6 +257,51 @@ export default function HUD() {
       bombTimerRef.current = null;
     }
   }, []);
+  const [pauseOverlayVisible, setPauseOverlayVisible] = useState(false);
+  const [resumeCountdown, setResumeCountdown] = useState<number | null>(null);
+  const resumeCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clearResumeCountdown = useCallback(() => {
+    if (resumeCountdownRef.current) {
+      clearInterval(resumeCountdownRef.current);
+      resumeCountdownRef.current = null;
+    }
+  }, []);
+  const startResumeCountdown = useCallback(() => {
+    if (!paused || resumeCountdownRef.current) return;
+    let current = 3;
+    setResumeCountdown(current);
+    resumeCountdownRef.current = setInterval(() => {
+      current -= 1;
+      if (current <= 0) {
+        clearResumeCountdown();
+        setResumeCountdown(null);
+        setPauseOverlayVisible(false);
+        resumeGame();
+        return;
+      }
+      setResumeCountdown(current);
+    }, 1000);
+  }, [paused, clearResumeCountdown, resumeGame]);
+  const handleResetFromOverlay = useCallback(() => {
+    clearResumeCountdown();
+    setResumeCountdown(null);
+    setPauseOverlayVisible(false);
+    reset();
+  }, [clearResumeCountdown, reset]);
+
+  const handlePauseButton = () => {
+    if (paused) {
+      setPauseOverlayVisible(true);
+      return;
+    }
+    if (running) {
+      pauseGame();
+      setPauseOverlayVisible(true);
+      setResumeCountdown(null);
+      return;
+    }
+    reset();
+  };
   useEffect(() => {
     if (!boostBlastKey) return;
     setBlastVisible(true);
@@ -417,6 +466,15 @@ export default function HUD() {
   }, [bombPhase, clearBlackFishTimer]);
 
   useEffect(() => () => clearBombTimer(), [clearBombTimer]);
+
+  useEffect(() => () => clearResumeCountdown(), [clearResumeCountdown]);
+  useEffect(() => {
+    if (!paused) {
+      setPauseOverlayVisible(false);
+      setResumeCountdown(null);
+      clearResumeCountdown();
+    }
+  }, [paused, clearResumeCountdown]);
 
   const boostWindowActive = phase === 'flight' && !boostUsed && boostWindowStart > 0;
   const elapsedMs = boostWindowActive
@@ -593,13 +651,15 @@ export default function HUD() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={reset}
-          style={[styles.floatBtn, styles.resetBtn]}
-        >
-          <Text style={styles.floatIcon}>↻</Text>
-        </TouchableOpacity>
+        {!pauseOverlayVisible && !paused && (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={handlePauseButton}
+            style={[styles.floatBtn, styles.resetBtn]}
+          >
+            <Text style={styles.floatIcon}>↻</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {bombPhase !== 'idle' && (
@@ -720,6 +780,13 @@ export default function HUD() {
             <Text style={styles.blackFishHint}>Não clique!</Text>
           </View>
         </View>
+      )}
+      {pauseOverlayVisible && paused && (
+        <PauseOverlay
+          resumeCountdown={resumeCountdown}
+          onContinue={startResumeCountdown}
+          onReset={handleResetFromOverlay}
+        />
       )}
     </Animated.View>
   );
