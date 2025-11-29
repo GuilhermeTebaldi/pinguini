@@ -37,10 +37,10 @@ export default function MenuOverlay() {
           <View style={styles.logoTextWrap}>
             <Text style={styles.logoTitle}>Pinguin League</Text>
             <Text style={styles.logoSub}>Reino de Gelo</Text>
-            <Text style={styles.subtitle}>2.1</Text>
+            <Text style={styles.subtitle}>2.11</Text>
           </View>
         </View>
-
+ 
         {/* título principal */}
         <Text style={styles.title}>PINGUINI </Text>
        
