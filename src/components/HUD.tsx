@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Pressable, Image, Animated, Vibration } from 'react-native';
 import PowerBar from './PowerBar';
 import AngleSlider from './AngleSlider';
+import DistanceBadge from './DistanceBadge';
 import useGameStore, {
   GameState,
   BOOST_WINDOW_MS,
@@ -669,16 +670,16 @@ export default function HUD() {
 
       {/* Resultado */}
       {hasLanded && !running && (
-        <View style={styles.resultTop}>
-          <View style={styles.row}>
-          <Text style={styles.caption}>DISTÂNCIA</Text>
-          <View style={{ height: 4 }} />
-          <View style={styles.numRow}>
+        <DistanceBadge
+          distance={distanceToShow}
+          containerStyle={styles.resultTop}
+          renderValue={(valueStyle) => (
             <Animated.View style={[{ transform: [{ translateX: distanceShakeTranslate }] }]}>
-              <Text style={styles.value}>{distanceToShow.toFixed(1)}</Text>
+              <Text style={valueStyle}>{distanceToShow.toFixed(1)}</Text>
             </Animated.View>
-            <Text style={styles.unit}>m</Text>
-            {iceStoneVisible && (
+          )}
+          numRowExtras={
+            iceStoneVisible ? (
               <Animated.View
                 pointerEvents="none"
                 style={[
@@ -691,11 +692,11 @@ export default function HUD() {
               >
                 <View style={styles.iceStoneShard} />
               </Animated.View>
-            )}
-          </View>
+            ) : null
+          }
+        >
           <Text style={styles.fishResult}>Peixinhos: {fishBoostCount}</Text>
-          </View>
-        </View>
+        </DistanceBadge>
       )}
     </Animated.View>
   );
@@ -758,53 +759,7 @@ const styles = StyleSheet.create({
 
   /* Resultado flutuante (alinhado com FlightDistance) */
   resultTop: {
-    position: 'absolute',
-    top: 394,           // E TAMBEM NO FlightDistance.tsx aumentar a autura do valor distancia para cima ou para baixo ⬅️ se seu FlightDistance está no topo, mude para 64
-    left: 0,
-    right: 0,
-    alignItems: 'center',
     zIndex: 80,
-    marginLeft: 20,   // desloca ~40px pra direita
-  },
-
-  row: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    alignItems: 'center',
-  },
-
-  caption: {
-    fontSize: 10,
-    letterSpacing: 1.6,
-    color: 'rgba(15,23,42,0.55)',
-    fontWeight: '800',
-  },
-
-  numRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-  },
-
-  value: {
-    fontSize: 28,
-    lineHeight: 30,
-    fontWeight: '900',
-    color: '#0f172a',
-    textShadowColor: 'rgba(96,165,250,0.35)',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4,
-  },
-  label: {
-    fontSize: 12,
-    color: 'transparent', // invisível, serve só pra “empurrar” layout
-    marginVertical: 2,
-  },
-  unit: {
-    marginLeft: 6,
-    marginBottom: 2,
-    fontSize: 14,
-    fontWeight: '800',
-    color: 'rgba(15,23,42,0.7)',
   },
   fishResult: {
     marginTop: 4,
