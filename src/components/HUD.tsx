@@ -229,6 +229,7 @@ export default function HUD() {
     startDistanceDrain(distance ?? 0);
     suppressNextArrivalSound();
     finishRun();
+    blackFishThresholdRef.current = BLACK_FISH_INTERVAL;
   };
   const handleBombPress = () => {
     if (bombPhase !== 'ready') return;
