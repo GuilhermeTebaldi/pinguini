@@ -15,19 +15,22 @@ import { playFishSuccess, playFishFail, playBlackFishArrival, playBombCountdown,
 
 const FISH_SPRITE = require('../../assets/fish-icon.png');
 const BLACK_FISH_SPRITE = require('../../assets/tubarao.png');
-const FISH_TIMEOUT_MS = 1100;
+const FISH_TIMEOUT_MS = 1400;
 const FISH_RESPAWN_MS = 260;
 const FISH_OFFSET_X = 120;
 const FISH_OFFSET_Y = 55;
-const FISH_SIZE = 48;
+const FISH_SIZE = 64;
+const FISH_TOUCH_SLOP = 16;
+const FISH_PRESS_RETENTION = 12;
 const BLACK_FISH_SIZE = 70;
 const BOMB_SIZE = 60;
 const SLIDE_PY_THRESHOLD = 0.08;
 const SLIDE_VY_THRESHOLD = 0.16;
-const BLACK_FISH_DURATION_MS = 1500;
+const BLACK_FISH_DURATION_MS = 900; // tempo que o peixe preto fica até trocar pro outro peixe
 const BLACK_FISH_INTERVAL = 7;
 const DISTANCE_DRAIN_DURATION_MS = 900;
 const DISTANCE_DRAIN_STEP_MS = 40;
+const FISH_MIN_FLIGHT_DELAY_MS = 600;
 
 export default function HUD() {
   const reset     = useGameStore((s: GameState) => s.reset);
@@ -51,7 +54,6 @@ export default function HUD() {
   const boostLastIntensity = useGameStore((s: GameState) => s.boostLastIntensity);
 
   const angleDeg  = useGameStore((s: GameState) => s.angleDeg ?? 0);
-  const [tick, setTick] = useState(Date.now());
   const [blastVisible, setBlastVisible] = useState(false);
   const [fishVisible, setFishVisible] = useState(false);
   const [fishActive, setFishActive] = useState(false);
@@ -75,6 +77,7 @@ export default function HUD() {
   const iceStoneAnim = useRef(new Animated.Value(0)).current;
   const iceStoneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const drainingRef = useRef(false);
+  const flightStartRef = useRef<number | null>(null);
   const clearFishTimer = useCallback(() => {
     if (fishTimerRef.current) {
       clearTimeout(fishTimerRef.current);
@@ -88,7 +91,7 @@ export default function HUD() {
     }
   }, []);
   const failFish = useCallback(() => {
-    if (fishFailed) return;
+    if (fishFailed || phase !== 'flight') return;
     clearFishTimer();
     clearBlackFishTimer();
     setBlackScreenVisible(false);
@@ -98,11 +101,11 @@ export default function HUD() {
     setFishStatus('fail');
     setFishVisible(true);
     void playFishFail();
-  }, [fishFailed, clearFishTimer, clearBlackFishTimer]);
+  }, [fishFailed, phase, clearFishTimer, clearBlackFishTimer]);
   const spawnFish = useCallback(() => {
     if (fishFailed) return;
     const offsetX = (Math.random() - 0.5) * 2 * FISH_OFFSET_X;
-    const offsetY = (Math.random() - 0.5) * 2 * FISH_OFFSET_Y;
+    const offsetY = -Math.abs((Math.random() - 0.5) * 2 * FISH_OFFSET_Y);
     setFishPosition({ x: offsetX, y: offsetY });
     setFishStatus('idle');
     setFishVisible(true);
@@ -251,20 +254,6 @@ export default function HUD() {
     }
   }, []);
   useEffect(() => {
-    let frame: number | null = null;
-    const loop = () => {
-      setTick(Date.now());
-      frame = requestAnimationFrame(loop);
-    };
-    if (phase === 'flight' && !boostUsed) {
-      frame = requestAnimationFrame(loop);
-    }
-    return () => {
-      if (frame !== null) cancelAnimationFrame(frame);
-    };
-  }, [phase, boostUsed]);
-
-  useEffect(() => {
     if (!boostBlastKey) return;
     setBlastVisible(true);
     const id = setTimeout(() => setBlastVisible(false), 520);
@@ -277,6 +266,43 @@ export default function HUD() {
     py <= SLIDE_PY_THRESHOLD &&
     Math.abs(vy) <= SLIDE_VY_THRESHOLD;
 
+  useEffect(() => {
+    if (phase === 'flight') {
+      if (flightStartRef.current == null) {
+        flightStartRef.current = Date.now();
+      }
+    } else {
+      flightStartRef.current = null;
+    }
+  }, [phase]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    if (slidingGround && !fishSessionActive && !fishFailed) {
+      const elapsed = flightStartRef.current
+        ? Math.max(0, Date.now() - flightStartRef.current)
+        : 0;
+      const remaining = Math.max(0, FISH_MIN_FLIGHT_DELAY_MS - elapsed);
+      timer = setTimeout(() => {
+        if (slidingGround && !fishSessionActive && !fishFailed) {
+          setFishSessionActive(true);
+          setFishFailed(false);
+          spawnFish();
+        }
+      }, remaining);
+    } else if (!slidingGround) {
+      clearFishTimer();
+      setFishSessionActive(false);
+      setFishVisible(false);
+      setFishActive(false);
+      setFishFailed(false);
+      setFishStatus('idle');
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [slidingGround, fishSessionActive, fishFailed, spawnFish, clearFishTimer]);
+
   const showBlackFish = useCallback(() => {
     if (blackFishVisible || fishFailed || !slidingGround || bombPhase === 'ready') return;
     clearFishTimer();
@@ -285,10 +311,11 @@ export default function HUD() {
     setFishActive(false);
     setFishStatus('idle');
     const offsetX = (Math.random() - 0.5) * 2 * FISH_OFFSET_X;
-    const offsetY = (Math.random() - 0.5) * 2 * FISH_OFFSET_Y;
+    const offsetY = -Math.abs((Math.random() - 0.5) * 2 * FISH_OFFSET_Y);
     setBlackFishPosition({ x: offsetX, y: offsetY });
     setBlackFishVisible(true);
     setBlackFishActive(true);
+    // tempo que o peixe preto permanece antes de permitir voltar ao peixe azul
     blackFishTimerRef.current = setTimeout(() => {
       setBlackFishVisible(false);
       setBlackFishActive(false);
@@ -308,23 +335,6 @@ export default function HUD() {
     clearBlackFishTimer,
     spawnFish,
   ]);
-
-  useEffect(() => {
-    if (slidingGround) {
-      if (!fishSessionActive && !fishFailed) {
-        setFishSessionActive(true);
-        setFishFailed(false);
-        spawnFish();
-      }
-    } else {
-      clearFishTimer();
-      setFishSessionActive(false);
-      setFishVisible(false);
-      setFishActive(false);
-      setFishFailed(false);
-      setFishStatus('idle');
-    }
-  }, [slidingGround, fishSessionActive, fishFailed, spawnFish, clearFishTimer]);
 
   useEffect(() => {
     if (
@@ -410,7 +420,7 @@ export default function HUD() {
 
   const boostWindowActive = phase === 'flight' && !boostUsed && boostWindowStart > 0;
   const elapsedMs = boostWindowActive
-    ? Math.min(BOOST_WINDOW_MS, Math.max(0, tick - boostWindowStart))
+    ? Math.min(BOOST_WINDOW_MS, Math.max(0, Date.now() - boostWindowStart))
     : 0;
   const yellowProgress =
     BOOST_BLUE_START_MS > 0 ? Math.min(1, elapsedMs / BOOST_BLUE_START_MS) : 1;
@@ -592,53 +602,6 @@ export default function HUD() {
         </TouchableOpacity>
       </View>
 
-      {fishVisible && (
-        <View pointerEvents="box-none" style={styles.fishLayer}>
-          <View
-            pointerEvents="box-none"
-            style={[styles.fishHolder, { transform: fishTransform }]}
-          >
-            <Pressable
-              pointerEvents={fishActive ? 'auto' : 'none'}
-              onPress={handleFishPress}
-              style={({ pressed }) => [
-                styles.fishButton,
-                fishStatus === 'success' && styles.fishSuccess,
-                fishFailed && styles.fishFailed,
-                pressed && styles.fishPressed,
-              ]}
-            >
-              <Image source={FISH_SPRITE} style={styles.fishImage} />
-              {fishFailed && <View style={styles.fishFailBadge} />}
-            </Pressable>
-            {!fishFailed && <Text style={styles.fishHint}>Clique rápido!</Text>}
-          </View>
-        </View>
-      )}
-
-      {blackFishVisible && (
-        <View pointerEvents="box-none" style={styles.fishLayer}>
-          <View
-            pointerEvents="box-none"
-            style={[styles.fishHolder, { transform: blackFishTransform }]}
-          >
-            <Pressable
-              pointerEvents={blackFishActive ? 'auto' : 'none'}
-              onPress={handleBlackFishPress}
-              style={({ pressed }) => [
-                styles.fishButton,
-                styles.blackFishButton,
-                pressed && styles.blackFishPressed,
-              ]}
-            >
-              <Image source={BLACK_FISH_SPRITE} style={[styles.fishImage, styles.blackFishImage]} />
-              <Text style={styles.blackFishLabel}>Peixe Preto</Text>
-            </Pressable>
-            <Text style={styles.blackFishHint}>Não clique!</Text>
-          </View>
-        </View>
-      )}
-
       {bombPhase !== 'idle' && (
         <View pointerEvents="box-none" style={styles.bombLayer}>
           {bombPhase === 'explode' && (
@@ -697,6 +660,66 @@ export default function HUD() {
         >
           <Text style={styles.fishResult}>Peixinhos: {fishBoostCount}</Text>
         </DistanceBadge>
+      )}
+
+      {fishVisible && (
+        <View pointerEvents="box-none" style={styles.fishLayer}>
+          <View
+            pointerEvents="box-none"
+            style={[styles.fishHolder, { transform: fishTransform }]}
+          >
+            <Pressable
+              pointerEvents={fishActive ? 'auto' : 'none'}
+              onPress={handleFishPress}
+              onPressIn={handleFishPress}
+              hitSlop={{
+                top: FISH_TOUCH_SLOP,
+                bottom: FISH_TOUCH_SLOP,
+                left: FISH_TOUCH_SLOP,
+                right: FISH_TOUCH_SLOP,
+              }}
+              pressRetentionOffset={{
+                top: FISH_PRESS_RETENTION,
+                bottom: FISH_PRESS_RETENTION,
+                left: FISH_PRESS_RETENTION,
+                right: FISH_PRESS_RETENTION,
+              }}
+              style={({ pressed }) => [
+                styles.fishButton,
+                fishStatus === 'success' && styles.fishSuccess,
+                fishFailed && styles.fishFailed,
+                pressed && styles.fishPressed,
+              ]}
+            >
+              <Image source={FISH_SPRITE} style={styles.fishImage} />
+              {fishFailed && <View style={styles.fishFailBadge} />}
+            </Pressable>
+            {!fishFailed && <Text style={styles.fishHint}>Clique rápido!</Text>}
+          </View>
+        </View>
+      )}
+
+      {blackFishVisible && (
+        <View pointerEvents="box-none" style={styles.fishLayer}>
+          <View
+            pointerEvents="box-none"
+            style={[styles.fishHolder, { transform: blackFishTransform }]}
+          >
+            <Pressable
+              pointerEvents={blackFishActive ? 'auto' : 'none'}
+              onPress={handleBlackFishPress}
+              style={({ pressed }) => [
+                styles.fishButton,
+                styles.blackFishButton,
+                pressed && styles.blackFishPressed,
+              ]}
+            >
+              <Image source={BLACK_FISH_SPRITE} style={[styles.fishImage, styles.blackFishImage]} />
+              <Text style={styles.blackFishLabel}>Peixe Preto</Text>
+            </Pressable>
+            <Text style={styles.blackFishHint}>Não clique!</Text>
+          </View>
+        </View>
       )}
     </Animated.View>
   );
@@ -837,8 +860,9 @@ const styles = StyleSheet.create({
     right: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 140,
+    zIndex: 1000,
     pointerEvents: 'none',
+    elevation: 30,
   },
   fishHolder: {
     alignItems: 'center',

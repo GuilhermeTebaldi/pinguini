@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 60,
+    zIndex: 5, // stay behind HUD fish layer
   },
 
   row: {

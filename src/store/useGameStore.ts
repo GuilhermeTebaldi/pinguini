@@ -42,7 +42,7 @@ const FISH_BASE_BOOST = 0.32;
 const FISH_INCREMENT = 0.15; // impulso do peixe aumenta em incrementos pequenos
 const FISH_MAX_BOOST = 0.62;
 const BOMB_IMPULSE = 5.6; // impulso da bomba
-const BOMB_VELOCITY_BUMP = 20.0; // deslize
+const BOMB_VELOCITY_BUMP = 23.0; // deslize
 const BOMB_FIRST_THRESHOLD = 5; // inicio para aparecer uma bomba
 const BOMB_INTERVAL = 10;
 const SLIDE_PY_THRESHOLD = 0.08;
@@ -76,6 +76,7 @@ export type GameState = {
   cameraZoom: number;
   cameraZoomTarget: number;
   distance: number;
+  flightDistance: number;
   hasLanded: boolean;
   phase: GamePhase;
   impact: ImpactData;
@@ -116,7 +117,7 @@ export type GameState = {
 
   finishRun: () => void;
 
-  setCrashed: (payload: { x?: number; wx?: number; distance: number; power?: number }) => void;
+  setCrashed: (payload: { x?: number; wx?: number; distance: number; power?: number; flightDistance?: number }) => void;
   clearImpact: () => void;
 };
 
@@ -145,6 +146,7 @@ const useGameStore = create<GameState>((set, get) => ({
   cameraZoom: 1,
   cameraZoomTarget: 1,
   distance: 0,
+  flightDistance: 0,
   hasLanded: false,
   phase: 'power',
   impact: null,
@@ -189,6 +191,7 @@ const useGameStore = create<GameState>((set, get) => ({
       cameraZoom: 1,
       cameraZoomTarget: 1,
       distance: 0,
+      flightDistance: 0,
       hasLanded: false,
       phase: 'power',
       power01: 0,
@@ -349,7 +352,19 @@ const useGameStore = create<GameState>((set, get) => ({
   },
 
   step: (dt) => {
-    const { running, gravity, drag, px, py, vx, vy, hasLanded, angleDeg } = get();
+    const state = get();
+    const {
+      running,
+      gravity,
+      drag,
+      px,
+      py,
+      vx,
+      vy,
+      hasLanded,
+      angleDeg,
+      flightDistance,
+    } = state;
     if (!running || hasLanded) return;
 
     // integração simples
@@ -357,10 +372,16 @@ const useGameStore = create<GameState>((set, get) => ({
     let ny = py + vy * dt;
     let nvx = vx * (1 - drag * dt);
     let nvy = vy - gravity * dt;
+    let nextFlightDistance = flightDistance;
+
+    if (ny > 0) {
+      nextFlightDistance = Math.max(nextFlightDistance, nx);
+    }
 
     // ======== IMPACTO COM O CHÃO ========
     if (ny <= 0) {
       ny = 0;
+      nextFlightDistance = Math.max(nextFlightDistance, nx);
 
       // Métricas do impacto
       const impactSpeed = Math.hypot(nvx, nvy); // módulo
@@ -400,7 +421,7 @@ const useGameStore = create<GameState>((set, get) => ({
 
         void playHeadCrash();
 
-        get().setCrashed({ wx: distance, distance, power });
+        get().setCrashed({ wx: distance, distance, power, flightDistance: nextFlightDistance });
         get().addRanking(distance);
 
         try {
@@ -428,6 +449,7 @@ const useGameStore = create<GameState>((set, get) => ({
           phase: 'landed',
           vx: 0,
           vy: 0,
+          flightDistance: nextFlightDistance,
         });
 
         try {
@@ -446,7 +468,8 @@ const useGameStore = create<GameState>((set, get) => ({
       py: ny,
       vx: nvx,
       vy: nvy,
-      time: get().time + dt,
+      time: state.time + dt,
+      flightDistance: nextFlightDistance,
     });
   },
 
@@ -476,20 +499,23 @@ const useGameStore = create<GameState>((set, get) => ({
       cameraTargetX: Math.max(0, penguinX - screenMeters * 0.5 + marginMeters),
     })),
 
-  setCrashed: ({ x, wx, distance, power = 1 }) =>
-    set(() => {
+  setCrashed: ({ x, wx, distance, power = 1, flightDistance }) =>
+    set((state) => {
       const key = Date.now();
       const impact: ImpactData = {
         key,
         wx: typeof wx === 'number' ? wx : (typeof x === 'number' ? x : distance),
         power,
       };
+      const nextFlightDistance =
+        typeof flightDistance === 'number' ? flightDistance : state.flightDistance;
 
       return {
         phase: 'crashed',
         running: false,
         hasLanded: true,
         distance,
+        flightDistance: nextFlightDistance,
         impact,
         vx: 0,
         vy: 0,
@@ -509,6 +535,7 @@ const useGameStore = create<GameState>((set, get) => ({
       hasLanded: true,
       phase: 'landed',
       distance: 0,
+      flightDistance: 0,
       vx: 0,
       vy: 0,
       boostWindowStart: 0,
