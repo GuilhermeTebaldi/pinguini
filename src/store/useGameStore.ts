@@ -570,6 +570,7 @@ const useGameStore = create<GameState>((set, get) => ({
       boostLastIntensity: 0,
       impact: null,
       paused: false,
+      fishBoostCount: 0,
     })),
 
   clearImpact: () => set({ impact: null }),

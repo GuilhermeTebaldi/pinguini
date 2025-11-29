@@ -27,7 +27,7 @@ const BLACK_FISH_SIZE = 70;
 const BOMB_SIZE = 60;
 const SLIDE_PY_THRESHOLD = 0.08;
 const SLIDE_VY_THRESHOLD = 0.16;
-const BLACK_FISH_DURATION_MS = 600; // tempo que o peixe preto fica até trocar pro outro peixe
+const BLACK_FISH_DURATION_MS = 900; // tempo que o peixe preto fica até trocar pro outro peixe
 const BLACK_FISH_INTERVAL = 7;
 const DISTANCE_DRAIN_DURATION_MS = 900;
 const DISTANCE_DRAIN_STEP_MS = 40;
@@ -229,7 +229,7 @@ export default function HUD() {
     startDistanceDrain(distance ?? 0);
     suppressNextArrivalSound();
     finishRun();
-    blackFishThresholdRef.current = BLACK_FISH_INTERVAL;
+    blackFishThresholdRef.current += BLACK_FISH_INTERVAL;
   };
   const handleBombPress = () => {
     if (bombPhase !== 'ready') return;
@@ -328,13 +328,13 @@ export default function HUD() {
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
-    if (slidingGround && !fishSessionActive && !fishFailed) {
+    if (slidingGround && !fishSessionActive && !fishFailed && !blackFishVisible) {
       const elapsed = flightStartRef.current
         ? Math.max(0, Date.now() - flightStartRef.current)
         : 0;
       const remaining = Math.max(0, FISH_MIN_FLIGHT_DELAY_MS - elapsed);
       timer = setTimeout(() => {
-        if (slidingGround && !fishSessionActive && !fishFailed) {
+        if (slidingGround && !fishSessionActive && !fishFailed && !blackFishVisible) {
           setFishSessionActive(true);
           setFishFailed(false);
           spawnFish();
@@ -351,7 +351,7 @@ export default function HUD() {
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [slidingGround, fishSessionActive, fishFailed, spawnFish, clearFishTimer]);
+  }, [slidingGround, fishSessionActive, fishFailed, blackFishVisible, spawnFish, clearFishTimer]);
 
   const showBlackFish = useCallback(() => {
     if (blackFishVisible || fishFailed || !slidingGround || bombPhase === 'ready') return;
@@ -360,6 +360,7 @@ export default function HUD() {
     setFishVisible(false);
     setFishActive(false);
     setFishStatus('idle');
+    setFishSessionActive(false);
     const offsetX = (Math.random() - 0.5) * 2 * FISH_OFFSET_X;
     const offsetY = -Math.abs((Math.random() - 0.5) * 2 * FISH_OFFSET_Y);
     setBlackFishPosition({ x: offsetX, y: offsetY });
@@ -375,7 +376,7 @@ export default function HUD() {
         spawnFish();
       }
     }, BLACK_FISH_DURATION_MS);
-    blackFishThresholdRef.current += BLACK_FISH_INTERVAL;
+    blackFishThresholdRef.current = fishBoostCount + BLACK_FISH_INTERVAL;
   }, [
     blackFishVisible,
     fishFailed,
@@ -384,6 +385,7 @@ export default function HUD() {
     clearFishTimer,
     clearBlackFishTimer,
     spawnFish,
+    fishBoostCount,
   ]);
 
   useEffect(() => {
@@ -723,7 +725,7 @@ export default function HUD() {
         </DistanceBadge>
       )}
 
-      {fishVisible && (
+      {fishVisible && !blackFishVisible && (
         <View pointerEvents="box-none" style={styles.fishLayer}>
           <View
             pointerEvents="box-none"
